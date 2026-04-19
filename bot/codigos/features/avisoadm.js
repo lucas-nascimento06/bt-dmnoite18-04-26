@@ -4,8 +4,7 @@ const { fetchProfilePictureUrl } = pkg;
 
 // Defina seus números de WhatsApp
 const yourNumbers = [
-    // '5521972337640@s.whatsapp.net',
-    // '558398759516@s.whatsapp.net'
+    '5521972337640@s.whatsapp.net'
 ];
 
 // Função para enviar mensagens de aviso
@@ -33,11 +32,9 @@ const getFormattedDateTime = () => {
 
 // Função auxiliar para extrair o identificador correto do participant
 const getParticipantId = (participantData) => {
-    // Se for string (versão antiga), retorna direto
     if (typeof participantData === 'string') {
         return participantData;
     }
-    // Se for objeto (versão nova), extrai phoneNumber ou id
     if (typeof participantData === 'object' && participantData !== null) {
         return participantData.phoneNumber || participantData.id;
     }
@@ -50,15 +47,19 @@ export async function handleGroupParticipantsUpdate(sock, update, botInfo) {
 
     if (!update.participants || update.participants.length === 0) return;
 
-    // ✅ CORREÇÃO: Adapta para funcionar com string OU objeto
     const participantData = update.participants[0];
     const participant = getParticipantId(participantData);
-    
-    // Para comparação de IDs (quando é objeto, usa o .id)
-    const participantIdForComparison = typeof participantData === 'object' && participantData !== null 
-        ? participantData.id 
+
+    // ✅ CORREÇÃO: garante que participant nunca é null antes do split
+    if (!participant) {
+        console.warn('⚠️ [avisoadm] participant inválido, ignorando update.');
+        return;
+    }
+
+    const participantIdForComparison = typeof participantData === 'object' && participantData !== null
+        ? participantData.id
         : participant;
-    
+
     const author = update.author;
 
     let profilePic;
@@ -75,7 +76,9 @@ export async function handleGroupParticipantsUpdate(sock, update, botInfo) {
     const title = "👏🍻 *DﾑMﾑS* 💃🔥 *Dﾑ* *NIGӇԵ*💃🎶🍾🍸";
 
     const participantName = `*@${participant.split('@')[0]}*`;
-    const authorName = `*@${author.split('@')[0]}*`;
+
+    // ✅ CORREÇÃO: author pode ser null quando alguém entra pelo link
+    const authorName = author ? `*@${author.split('@')[0]}*` : '*link de convite*';
 
     let message = `${title}\n\n`;
 
@@ -84,20 +87,18 @@ export async function handleGroupParticipantsUpdate(sock, update, botInfo) {
                    `O usuário ${participantName} foi *PROMOVIDO(a)* a administrador do grupo.\n` +
                    `🎉 Por: ${authorName}\n` +
                    `🕒 Em: ${dateTime}`;
-        await sendMessages(sock, message, [participant, author]);
+        await sendMessages(sock, message, [participant, author].filter(Boolean));
 
     } else if (update.action === 'demote') {
         message += `❌ *REBAIXAMENTO DE ADMINISTRADOR*\n\n` +
                    `O usuário ${participantName} foi *REBAIXADO(a)* de administrador do grupo.\n` +
                    `⚠️ Por: ${authorName}\n` +
                    `🕒 Em: ${dateTime}`;
-        await sendMessages(sock, message, [participant, author]);
+        await sendMessages(sock, message, [participant, author].filter(Boolean));
 
     } else if (update.action === 'add') {
-        // Verifica se o usuário entrou por link ou foi adicionado por admin
-        // Usa participantIdForComparison para comparar corretamente
         const enteredByLink = !author || author === participantIdForComparison;
-        
+
         if (enteredByLink) {
             message += `👋 *NOVO MEMBRO*\n\n` +
                        `${participantName} *ENTROU* no grupo através do link de convite.\n` +
@@ -109,14 +110,12 @@ export async function handleGroupParticipantsUpdate(sock, update, botInfo) {
                        `${participantName} foi *ADICIONADO(a)* ao grupo.\n` +
                        `🎉 Por: ${authorName}\n` +
                        `🕒 Em: ${dateTime}`;
-            await sendMessages(sock, message, [participant, author], profilePic);
+            await sendMessages(sock, message, [participant, author].filter(Boolean), profilePic);
         }
 
     } else if (update.action === 'remove') {
-        // Verifica se o usuário saiu por conta própria ou foi removido
-        // ✅ USA participantIdForComparison para comparar no formato correto
         const isUserLeftByThemselves = participantIdForComparison === author;
-        
+
         if (isUserLeftByThemselves) {
             message += `👋 *USUÁRIO SAIU DO GRUPO*\n\n` +
                        `${participantName} *SAIU* do grupo por conta própria.\n` +
@@ -127,7 +126,7 @@ export async function handleGroupParticipantsUpdate(sock, update, botInfo) {
                        `${participantName} foi *REMOVIDO(a)* do grupo.\n` +
                        `⚠️ Por: ${authorName}\n` +
                        `🕒 Em: ${dateTime}`;
-            await sendMessages(sock, message, [participant, author], profilePic);
+            await sendMessages(sock, message, [participant, author].filter(Boolean), profilePic);
         }
     }
 }

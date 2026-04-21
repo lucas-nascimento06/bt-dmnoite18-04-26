@@ -16,7 +16,7 @@ import { handleStickerCommand } from '../../features/stickerHandler.js';
 import { processarComandoRegras } from '../../features/boasVindas.js';
 import { configurarDespedida } from '../../features/despedidaMembro.js';
 import { handlePoemas, handleAtualizarPoemas } from '../command/poema.js';
-import { handleReloadConfig } from '../musica/dedicatoriaHandler.js'
+import { handleReloadConfig, handleDedicatoriaCommands } from '../musica/dedicatoriaHandler.js'
 import { handleBanMessage } from '../../moderation/banHandler.js'; 
 
 
@@ -232,6 +232,13 @@ export async function handleMessages(sock, message) {
       await handleAtualizarPoemas(sock, message, [], from);
       return;
     }
+
+     // 🎙️ Dedicatória musical (#play música @pessoa)
+    if (lowerContent.startsWith('#play')) {
+      const dedicatoriaHandled = await handleDedicatoriaCommands(sock, message, from);
+      if (dedicatoriaHandled) return;
+    }
+    
       // 🎵 Atualizar config de dedicatória
     if (lowerContent === '#atualizarmusicas') {
       if (DEBUG_MODE) console.log('🔄 Comando #atualizarmusicas detectado!');

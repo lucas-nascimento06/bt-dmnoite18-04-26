@@ -84,6 +84,20 @@ async function gerarThumbnail(buffer, size = 256) {
     }
 }
 
+// ✅ RESOLVER SENDER REAL (evita @lid e JID de grupo)
+function resolverSenderId(message) {
+    const key = message.key;
+    // Prefere participantAlt (número real @s.whatsapp.net)
+    if (key.participantAlt && key.participantAlt.endsWith('@s.whatsapp.net')) {
+        return key.participantAlt;
+    }
+    if (key.participant && key.participant.endsWith('@s.whatsapp.net')) {
+        return key.participant;
+    }
+    // Fallback
+    return key.participant || key.remoteJid;
+}
+
 // ── PARSEAR COMANDO ──────────────────────────────────────────────────────────
 function parsearComando(content, message) {
     const semPrefixo = content
@@ -180,7 +194,10 @@ async function baixarThumbnail(url) {
 async function processarDedicatoria(sock, from, termo, senderId, mentionedJids, nomeExibicao, originalMessage) {
     const caminhoTemp = path.join('./downloads', `temp_dedic_${Date.now()}.mp3`);
 
-    const nomeQuemPediu = `@${senderId.split('@')[0]}`;
+    // ✅ Número limpo para exibição (sem @lid ou JID de grupo)
+    const numeroRemetente = senderId.split('@')[0];
+    const nomeQuemPediu = `@${numeroRemetente}`;
+
     const destinatarioJid = mentionedJids.length > 0 ? mentionedJids[0] : null;
     const nomeDestinatario = destinatarioJid
         ? `@${destinatarioJid.split('@')[0]}`
@@ -286,13 +303,12 @@ async function processarDedicatoria(sock, from, termo, senderId, mentionedJids, 
         });
 
         // ── 6. MENSAGEM ROMÂNTICA FINAL ──────────────────────────────────────
-        const nomeDeExibição = senderId.split('@')[0];
         const nomeParaExibição = destinatarioJid
             ? destinatarioJid.split('@')[0]
             : (nomeExibicao || 'você');
 
         const mensagemRomantica = fraseAleatoria(
-            `@${nomeDeExibição}`,
+            `@${numeroRemetente}`,
             `@${nomeParaExibição}`,
             dados.titulo,
             dados.autor
@@ -352,7 +368,7 @@ export async function handleReloadConfig(sock, message, from) {
 
     if (!/^#atualizarmusicas$/i.test(content.trim())) return false;
 
-    const senderId = message.key.participant || message.key.remoteJid;
+    const senderId = resolverSenderId(message);
 
     await sock.sendMessage(from, {
         text: '🔄 Recarregando configuração do GitHub...',
@@ -401,7 +417,10 @@ export async function handleDedicatoriaCommands(sock, message, from) {
     if (!parsed) return false;
 
     const { termo, mentionedJids, nomeExibicao } = parsed;
-    const senderId = message.key.participant || message.key.remoteJid;
+
+    // ✅ Usa resolverSenderId para pegar o número real (@s.whatsapp.net)
+    const senderId = resolverSenderId(message);
+    console.log(`🎙️ [DEDICATÓRIA] senderId resolvido: ${senderId}`);
 
     if (!termo) {
         await sock.sendMessage(from, {

@@ -2,7 +2,7 @@
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
-import { Jimp, JimpMime } from 'jimp';
+import Jimp from 'jimp';
 
 import { baixarMusicaBuffer, obterDadosMusica, buscarUrlPorNome } from './download.util.js';
 
@@ -76,8 +76,8 @@ function getMensagem(chave, variaveis = {}) {
 async function gerarThumbnail(buffer, size = 256) {
     try {
         const image = await Jimp.read(buffer);
-        image.scaleToFit({ w: size, h: size });
-        return await image.getBuffer(JimpMime.jpeg);
+        image.scaleToFit(size, size);
+        return await image.getBufferAsync(Jimp.MIME_JPEG);
     } catch (err) {
         console.error('Erro ao gerar thumbnail:', err);
         return null;
@@ -168,8 +168,8 @@ async function baixarThumbnail(url) {
             const buf = Buffer.from(response.data);
             if (buf.length < 5000) continue;
             const image = await Jimp.read(buf);
-            image.scaleToFit({ w: 1280, h: 720 });
-            return await image.getBuffer(JimpMime.jpeg);
+            image.scaleToFit(1280, 720);
+            return await image.getBufferAsync(Jimp.MIME_JPEG);
         } catch { continue; }
     }
     return null;

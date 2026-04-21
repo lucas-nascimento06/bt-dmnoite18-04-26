@@ -2,7 +2,7 @@
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
-import { Jimp, JimpMime } from 'jimp';
+import Jimp from 'jimp';
 import { baixarMusicaBuffer, obterDadosMusica, buscarUrlPorNome } from './download.util.js';
 
 let processandoMusica = false;
@@ -18,8 +18,8 @@ function limparNomeArquivo(nome) {
 async function gerarThumbnail(buffer, size = 256) {
     try {
         const image = await Jimp.read(buffer);
-        image.scaleToFit({ w: size, h: size });
-        return await image.getBuffer(JimpMime.jpeg);
+        image.scaleToFit(size, size);
+        return await image.getBufferAsync(Jimp.MIME_JPEG);
     } catch (err) {
         console.error('Erro ao gerar thumbnail:', err);
         return null;
@@ -89,18 +89,18 @@ async function baixarThumbnailComJimp(url) {
             }
 
             const image = await Jimp.read(imageBuffer);
-            console.log(`📐 Dimensões originais: ${image.width}x${image.height}`);
+            console.log(`📐 Dimensões originais: ${image.bitmap.width}x${image.bitmap.height}`);
 
-            if (image.width > 1280 || image.height > 720) {
-                image.scaleToFit({ w: 1280, h: 720 });
+            if (image.bitmap.width > 1280 || image.bitmap.height > 720) {
+                image.scaleToFit(1280, 720);
             }
 
-            const processedBuffer = await image.getBuffer(JimpMime.jpeg);
+            const processedBuffer = await image.getBufferAsync(Jimp.MIME_JPEG);
             console.log(`✅ Imagem processada: ${processedBuffer.length} bytes`);
 
             if (processedBuffer.length > 5 * 1024 * 1024) {
-                image.scaleToFit({ w: 640, h: 360 });
-                return await image.getBuffer(JimpMime.jpeg);
+                image.scaleToFit(640, 360);
+                return await image.getBufferAsync(Jimp.MIME_JPEG);
             }
 
             return processedBuffer;
@@ -313,10 +313,9 @@ export async function handleMusicaCommands(sock, message, from) {
                     message.message?.extendedTextMessage?.text || '';
     const lowerContent = content.toLowerCase().trim();
 
-    // ✅ Novo comando: #play
     if (!lowerContent.startsWith('#play ')) return false;
 
-    // ✅ Se tiver @menção = é dedicatória, deixa o dedicatoriaHandler tratar
+    // Se tiver @menção = é dedicatória, deixa o dedicatoriaHandler tratar
     const temMencaoNoTexto = /@\S+/.test(content);
     const temMencaoResolvida = (message.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length || 0) > 0;
     if (temMencaoNoTexto || temMencaoResolvida) return false;

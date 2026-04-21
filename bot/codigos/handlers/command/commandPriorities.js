@@ -1,6 +1,5 @@
 // commandPriorities.js - MÓDULO PRINCIPAL COMPACTO
 import { handleOwnerMenu } from '../../features/menuOwner.js';
-import { handleBanMessage } from '../../moderation/banHandler.js';
 import { handleGroupCommands } from "../../utils/redefinirFecharGrupo.js";
 import alertaHandler from '../../moderation/alertaHandler.js';
 import { 
@@ -25,13 +24,13 @@ export async function processCommandPriorities(
     // 👑 PRIORIDADE 1: MENU OWNER
     if (!handled) handled = await handleOwnerMenu(sock, from, userId, content, OWNER_NUMBERS);
 
-    // 🔹 PRIORIDADE 2: BANIMENTO
-    if (!handled && from.endsWith('@g.us')) await handleBanMessage(sock, message);
+    // ✅ #BAN removido daqui — já tratado com early return em messageHandler.js
+    // Manter aqui causava chamada dupla e processamento redundante.
 
-    // 🔹 PRIORIDADE 3: ADMIN GRUPO (#rlink, #closegp, #opengp)
+    // 🔹 PRIORIDADE 2: ADMIN GRUPO (#rlink, #closegp, #opengp)
     if (!handled) handled = await handleGroupCommands(sock, message);
 
-    // 🔹 PRIORIDADE 4-5: AUTOTAG
+    // 🔹 PRIORIDADE 3-4: AUTOTAG
     if (!handled && from.endsWith('@g.us')) {
         handled = await autoTag.handleAdminCommands(sock, from, userId, content);
         if (!handled) {
@@ -40,7 +39,7 @@ export async function processCommandPriorities(
         }
     }
 
-    // 🌟 PRIORIDADES 6-12: OUTROS COMANDOS
+    // 🌟 PRIORIDADES 5-8: OUTROS COMANDOS
     if (!handled) handled = await handleSignosCommands(sock, message, content, from);
     if (!handled) handled = await handleBlacklistGroup(sock, from, userId, content, message);
     if (!handled) handled = await handleVarreduraCommand(sock, message, content, from, userId);

@@ -21,3 +21,4 @@ export function isUserAdmin(userId, groupAdmins) {
     const normalizedUserId = normalizeNumber(userId);
     return groupAdmins.includes(normalizedUserId);
 }
+

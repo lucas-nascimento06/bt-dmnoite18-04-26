@@ -4,9 +4,6 @@ import { handleBlacklistCommands } from '../../../codigos/moderation/blacklist/b
 import { listarSignos, handleHoroscopoCommand } from '../../features/horoscopoHandler.js';
 import { scanAndRemoveBlacklisted } from '../../../codigos/moderation/blacklist/blacklistFunctions.js';
 
-/**
- * Função para deletar mensagem com múltiplas tentativas (IGUAL AO #BAN)
- */
 const deleteCommandMessage = async (sock, groupId, messageKey) => {
     const delays = [0, 100, 500, 1000, 2000, 5000];
     
@@ -49,20 +46,21 @@ export async function handleSignosCommands(sock, message, content, from) {
     return false;
 }
 
-// 🚫 BLACKLIST - CORRIGIDO
+// 🚫 BLACKLIST
 export async function handleBlacklistGroup(sock, from, userId, content, message) {
-    // Passa a mensagem completa (message) ao invés de pool
+    // ✅ Ignora #ban — processado pelo banHandler
+    if (content?.toLowerCase().trim().startsWith('#ban')) return false;
+
     return await handleBlacklistCommands(sock, from, userId, content, message);
 }
 
-// 🔍 VARREDURA - COM DELEÇÃO DE COMANDO
+// 🔍 VARREDURA
 export async function handleVarreduraCommand(sock, message, content, from, userId) {
     if (content.toLowerCase().trim() !== '#varredura' || !from.endsWith('@g.us')) {
         return false;
     }
 
     try {
-        // DELETA O COMANDO IMEDIATAMENTE
         await deleteCommandMessage(sock, from, message.key);
         
         const groupMetadata = await sock.groupMetadata(from);

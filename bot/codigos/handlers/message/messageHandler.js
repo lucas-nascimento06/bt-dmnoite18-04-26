@@ -15,6 +15,8 @@ import { handleBasicCommands, handleGroupUpdate } from './messageHelpers.js';
 import { handleStickerCommand } from '../../features/stickerHandler.js';
 import { processarComandoRegras } from '../../features/boasVindas.js';
 import { configurarDespedida } from '../../features/despedidaMembro.js';
+import { handlePoemas, handleAtualizarPoemas } from '../command/poema.js';
+import { handleBanMessage } from '../../moderation/banHandler.js'; // ✅ NOVO
 
 // ✅ NOVOS IMPORTS — rainha / ranking
 import { ativosHandler, inativosHandler } from '../command/ativosHandler.js';
@@ -33,7 +35,6 @@ const replyTag = new ReplyTagHandler();
 const OWNER_NUMBERS = ['5516981874405', '5521972337640'];
 const DEBUG_MODE = process.env.DEBUG === 'true';
 
-// ✅ Grupo onde mensagens são registradas e ranking é gerado
 const GRUPO_PRINCIPAL = '120363404775670913@g.us';
 
 const MEDIA_TYPES = [
@@ -68,7 +69,6 @@ function getMessageUniqueId(messageKey) {
   return `${remoteJid}_${id}_${fromMe}_${participant || 'none'}`;
 }
 
-// Resolve o remetente real ignorando IDs de grupo e LID
 function resolverRemetenteReal(message) {
   const key = message.key;
   const candidatos = [key.participantAlt, key.participant];
@@ -86,14 +86,12 @@ function resolverRemetenteReal(message) {
 // ============================================
 export async function handleMessages(sock, message) {
   try {
-    // Verifica duplicatas
     const uniqueId = getMessageUniqueId(message.key);
     if (processedMessages.has(uniqueId)) return;
 
     processedMessages.add(uniqueId);
     cleanMessageCache();
 
-    // Validações básicas
     if (!message?.key || !message?.message) return;
 
     const from      = message.key.remoteJid;
@@ -132,7 +130,6 @@ export async function handleMessages(sock, message) {
       }
     }
 
-    // Ignora mensagens vazias (sem texto E sem mídia)
     if (!content?.trim() && !isMediaMessage) return;
 
     if (DEBUG_MODE) {
@@ -164,7 +161,7 @@ export async function handleMessages(sock, message) {
     }
 
     // ============================================
-    // 👑 MENU OWNER (PRIORIDADE MÁXIMA - COMANDO SECRETO)
+    // 👑 MENU OWNER
     // ============================================
     if (lowerContent === '#dmlukownner') {
       const ownerHandled = await handleOwnerMenu(
@@ -176,7 +173,7 @@ export async function handleMessages(sock, message) {
       }
     }
 
-    // 💌 CONFISSÕES (prioridade máxima no privado)
+    // 💌 CONFISSÕES (privado)
     const isPrivateChat = !from.endsWith('@g.us') && !from.includes('@newsletter');
     if (isPrivateChat) {
       const handled = await confissoesHandler.handlePrivateMessage(
@@ -220,7 +217,20 @@ export async function handleMessages(sock, message) {
       if (regrasProcessed) return;
     }
 
-    // 🚨 Moderação: #atualizarregras / #alerta
+    // 📜 Poemas
+    if (lowerContent === '#poema' || lowerContent === '#poemas' || lowerContent === '#poe') {
+      if (DEBUG_MODE) console.log('📜 Comando #poemas detectado!');
+      await handlePoemas(sock, message, [], from);
+      return;
+    }
+
+    if (lowerContent === '#atualizarpoemas') {
+      if (DEBUG_MODE) console.log('🔄 Comando #atualizarpoemas detectado!');
+      await handleAtualizarPoemas(sock, message, [], from);
+      return;
+    }
+
+    // 🚨 #alerta
     if (lowerContent === '#atualizarregras' || lowerContent.includes('#alerta')) {
       if (DEBUG_MODE) console.log(`🔍 Comando detectado: ${lowerContent}`);
       const alertaProcessed = await alertaHandler(sock, message);
@@ -230,18 +240,23 @@ export async function handleMessages(sock, message) {
       }
     }
 
-    // 🎨 Comando #stickerdamas
+    // 🎨 Sticker
     if (lowerContent.startsWith('#stickerdamas')) {
       await handleStickerCommand(sock, message);
       return;
     }
 
+    // ✅ 🚫 BANIMENTO — PRIORIDADE ALTA, ANTES DE TUDO MAIS
+    if (from.endsWith('@g.us') && content?.includes('#ban')) {
+      await handleBanMessage(sock, message);
+      return;
+    }
+
     // ============================================
-    // 👑 COMANDOS RAINHA / RANKING (apenas em grupos)
+    // 👑 COMANDOS RAINHA / RANKING
     // ============================================
     if (from.endsWith('@g.us')) {
 
-      // ── Busca admins uma única vez (reutilizada em todos os comandos abaixo) ──
       const _getMeta = async () => {
         const meta      = await sock.groupMetadata(from);
         const admList   = meta.participants.filter(p => p.admin).map(p => p.id);
@@ -252,14 +267,12 @@ export async function handleMessages(sock, message) {
         return { admList, adminNums, membrosResolvidos };
       };
 
-      // ── #rainhadamas ────────────────────────────────────────────────────────
       if (lowerContent === '#rainhadamas') {
         if (DEBUG_MODE) console.log('👑 Comando #rainhadamas detectado');
         await rainhaHandler(sock, message);
         return;
       }
 
-      // ── #ativos ─────────────────────────────────────────────────────────────
       if (lowerContent === '#ativos') {
         if (DEBUG_MODE) console.log('🟢 Comando #ativos detectado');
         const { admList } = await _getMeta();
@@ -267,22 +280,17 @@ export async function handleMessages(sock, message) {
         return;
       }
 
-      // ── #inativos ───────────────────────────────────────────────────────────
       if (lowerContent === '#inativos') {
         if (DEBUG_MODE) console.log('🔴 Comando #inativos detectado');
         const { admList } = await _getMeta();
-        // Passa o GRUPO_PRINCIPAL como alvo caso o comando venha do grupo de admins
         await inativosHandler(sock, message, admList, GRUPO_PRINCIPAL);
         return;
       }
 
-      // ── #rankdamas ──────────────────────────────────────────────────────────
       if (lowerContent === '#rankdamas') {
         if (DEBUG_MODE) console.log('🏆 Comando #rankdamas detectado');
 
         const { admList, adminNums, membrosResolvidos } = await _getMeta();
-
-        // ✅ CORREÇÃO: verificar se é admin ANTES de qualquer operação no banco
         const rawUserId = resolverRemetenteReal(message) || userId;
         const isAdmin   = admList.includes(rawUserId);
 
@@ -293,13 +301,9 @@ export async function handleMessages(sock, message) {
           return;
         }
 
-        // Captura snapshot de inativos + fantasmas ANTES do rankdamasHandler
-        // para evitar dupla consulta ao banco (o handler também as busca internamente,
-        // mas precisamos da lista aqui para montar a cobrança no grupo principal)
         const inativosSnapshot = await getInativosComDias(from, membrosResolvidos, adminNums);
         const { fantasmas: fantasmasSnapshot } = await getFantasmas(from, membrosResolvidos, adminNums);
 
-        // Mescla inativos + fantasmas sem duplicatas
         const cobrarSet  = new Set(inativosSnapshot.map(m => m.resolvedId.split('@')[0]));
         const listaCobrar = [...inativosSnapshot];
         fantasmasSnapshot.forEach(f => {
@@ -307,10 +311,8 @@ export async function handleMessages(sock, message) {
           if (!cobrarSet.has(num)) listaCobrar.push(f);
         });
 
-        // Executa o ranking (envia rainha, ativos, inativos, fantasmas pros admins)
         await rankdamasHandler(sock, message, admList);
 
-        // Cobrança pública — isAdmin já garantido acima, sem verificação dupla
         try {
           if (listaCobrar.length) {
             const FRASES_COBRANCA = [
@@ -345,17 +347,12 @@ export async function handleMessages(sock, message) {
           console.error('❌ [cobrança inativos] Erro:', err.message);
         }
 
-        // Fecha o dia APÓS a cobrança (zera quantidades, incrementa inativos, remove banidos)
-        // ✅ Só chega aqui se isAdmin === true, então o banco está protegido
         await fecharDia(from, membrosResolvidos, adminNums);
-
         return;
       }
     }
 
-    // ============================================
-    // 💌 CONFISSÕES (admin em grupo)
-    // ============================================
+    // 💌 CONFISSÕES (grupo)
     if (from.endsWith('@g.us')) {
       if (lowerContent === '#avisarconfissoes') {
         const avisoPosted = await confissoesHandler.postarAvisoConfissoes(
@@ -379,7 +376,7 @@ export async function handleMessages(sock, message) {
       return;
     }
 
-    // 🔒 Comandos de grupo (emergência): #rlink, #closegp, #opengp, #f, #a
+    // 🔒 Comandos de grupo
     const groupCommandHandled = await handleGroupCommands(sock, message);
     if (groupCommandHandled) {
       if (DEBUG_MODE) console.log('✅ Comando de grupo processado');
@@ -393,7 +390,6 @@ export async function handleMessages(sock, message) {
       { messageType, isMediaMessage }
     );
 
-    // Comandos básicos (fallback final)
     if (!handled) {
       await handleBasicCommands(sock, message, from, userId, content, pool, {
         messageType,
@@ -427,9 +423,6 @@ export async function updateGroupOnJoin(sock, groupId) {
   }
 }
 
-// ============================================
-// 👋 HANDLER DE PARTICIPANTES DO GRUPO
-// ============================================
 export async function handleGroupParticipantsUpdate(sock, update) {
   try {
     await handleGroupUpdate(sock, update);
@@ -456,9 +449,6 @@ export async function handleGroupParticipantsUpdate(sock, update) {
   }
 }
 
-// ============================================
-// 📊 UTILITÁRIOS DE CACHE
-// ============================================
 export function getCacheStats() {
   return {
     totalProcessed: processedMessages.size,

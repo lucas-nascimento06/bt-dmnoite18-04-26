@@ -46,26 +46,8 @@ export async function initDB() {
     );
     CREATE INDEX IF NOT EXISTS idx_mg_grupo
       ON mensagens_grupo (grupo_id);
-
-    CREATE TABLE IF NOT EXISTS bot_conexao (
-      grupo_id     TEXT PRIMARY KEY,
-      conectado_em DATE NOT NULL DEFAULT CURRENT_DATE
-    );
   `);
   console.log('🗄️ Tabelas verificadas/criadas.');
-}
-
-// ============================================
-// 📅 REGISTRAR CONEXÃO DO BOT NO GRUPO
-// ============================================
-export async function registrarConexaoBot(grupoId) {
-  const hoje = dataHojeBrasilia();
-  await pool.query(
-    `INSERT INTO bot_conexao (grupo_id, conectado_em)
-     VALUES ($1, $2)
-     ON CONFLICT (grupo_id) DO UPDATE SET conectado_em = $2`,
-    [grupoId, hoje]
-  );
 }
 
 // ============================================
@@ -131,7 +113,7 @@ export async function getAtivos(grupoId) {
 }
 
 // ============================================
-// 👻 FANTASMAS (nunca falaram desde conexão do bot)
+// 👻 FANTASMAS (nunca falaram desde que o bot conhece o grupo)
 // ============================================
 export async function getFantasmas(grupoId, membrosResolvidos, adminNums = []) {
   const res = await pool.query(
@@ -139,23 +121,14 @@ export async function getFantasmas(grupoId, membrosResolvidos, adminNums = []) {
     [grupoId]
   );
   const conhecidos = new Set(res.rows.map(r => r.usuario_id));
-
-  const conn = await pool.query(
-    `SELECT conectado_em FROM bot_conexao WHERE grupo_id = $1`,
-    [grupoId]
-  );
-  const conectadoEm = conn.rows[0]?.conectado_em
-    ? new Date(conn.rows[0].conectado_em).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
-    : 'início';
-
-  const ignorados = new Set([BOT_NUMBER, ...adminNums]);
+  const ignorados  = new Set([BOT_NUMBER, ...adminNums]);
 
   const fantasmas = membrosResolvidos.filter(m => {
     const num = m.resolvedId.replace(/@.*$/, '');
     return !conhecidos.has(num) && !ignorados.has(num);
   });
 
-  return { fantasmas, conectadoEm };
+  return { fantasmas };
 }
 
 // ============================================
@@ -163,14 +136,14 @@ export async function getFantasmas(grupoId, membrosResolvidos, adminNums = []) {
 // ============================================
 export async function getInativosComDias(grupoId, membrosResolvidos, adminNums = []) {
   const res = await pool.query(
-    `SELECT usuario_id, dias_inativo
+    `SELECT usuario_id, nome, dias_inativo
        FROM mensagens_grupo
       WHERE grupo_id = $1`,
     [grupoId]
   );
 
   const bancoPorNumero = {};
-  res.rows.forEach(r => { bancoPorNumero[r.usuario_id] = r.dias_inativo; });
+  res.rows.forEach(r => { bancoPorNumero[r.usuario_id] = { dias: r.dias_inativo, nome: r.nome }; });
 
   const ativosHoje = new Set(
     (await getAtivos(grupoId)).map(u => u.usuario_id)
@@ -184,9 +157,10 @@ export async function getInativosComDias(grupoId, membrosResolvidos, adminNums =
       return !ativosHoje.has(num) && !ignorados.has(num) && num in bancoPorNumero;
     })
     .map(m => {
-      const num         = m.resolvedId.replace(/@.*$/, '');
-      const diasInativo = bancoPorNumero[num] + 1;
-      return { ...m, diasInativo };
+      const num         = m.resolvedId.replace(/@.*$/, "");
+      const diasInativo = bancoPorNumero[num].dias + 1;
+      const nome        = bancoPorNumero[num].nome || null;
+      return { ...m, diasInativo, nome };
     })
     .sort((a, b) => b.diasInativo - a.diasInativo);
 }
@@ -197,8 +171,6 @@ export async function getInativosComDias(grupoId, membrosResolvidos, adminNums =
 export async function fecharDia(grupoId, membrosResolvidos, adminNums = []) {
   const hoje = dataHojeBrasilia();
 
-  // ✅ CORREÇÃO: monta o conjunto de números que ainda estão no grupo
-  // e remove do banco qualquer registro de quem já saiu
   const numerosNoGrupo = new Set(
     membrosResolvidos.map(m => m.resolvedId.replace(/@.*$/, ''))
   );
@@ -228,7 +200,6 @@ export async function fecharDia(grupoId, membrosResolvidos, adminNums = []) {
 
   const ignorados = new Set([BOT_NUMBER, ...adminNums]);
 
-  // Incrementa dias_inativo APENAS de quem o bot já conhece e não falou hoje
   const inativosNums = membrosResolvidos
     .map(m => m.resolvedId.replace(/@.*$/, ''))
     .filter(num => !ativosHoje.has(num) && !ignorados.has(num));
@@ -243,7 +214,6 @@ export async function fecharDia(grupoId, membrosResolvidos, adminNums = []) {
     );
   }
 
-  // Zera dias_inativo de quem falou hoje
   const ativosArray = [...ativosHoje];
   if (ativosArray.length) {
     await pool.query(
@@ -255,7 +225,6 @@ export async function fecharDia(grupoId, membrosResolvidos, adminNums = []) {
     );
   }
 
-  // Zera quantidade de quem falou hoje
   await pool.query(
     `UPDATE mensagens_grupo
         SET quantidade = 0
@@ -265,7 +234,6 @@ export async function fecharDia(grupoId, membrosResolvidos, adminNums = []) {
     [grupoId, hoje]
   );
 
-  // Remove banidos (5+ dias inativos)
   await pool.query(
     `DELETE FROM mensagens_grupo
       WHERE grupo_id = $1

@@ -1,48 +1,63 @@
-//banHandler.js
+// banHandler.js
 
-// Função principal para gerenciar mensagens de banimento
+import { addToBlacklist } from '../moderation/blacklist/blacklistFunctions.js';
+
+const GRUPO_PRINCIPAL = '120363404775670913@g.us';
+const GRUPO_ADMINS    = '120363426062597341@g.us';
+
 export async function handleBanMessage(c, message) {
     try {
         const { key, message: msg } = message;
-        const from = key.remoteJid; // Identificador do grupo
-        const sender = key.participant || key.remoteJid; // Identificador do remetente
+        const from      = key.remoteJid;
+        const sender    = key.participant || key.remoteJid;
+        const senderAlt = key.participantAlt || null;
 
-        const botId = c.user.id; // ID do bot
+        const isFromAdminGroup = from === GRUPO_ADMINS;
+        const isFromMainGroup  = from === GRUPO_PRINCIPAL;
+        if (!isFromAdminGroup && !isFromMainGroup) return;
+
+        const botId = c.user.id;
         const groupMetadata = await c.groupMetadata(from);
 
-        // Verificar PRIMEIRO se é realmente um comando #ban
+        // ─── Detecção do comando #ban ───────────────────────────────────────
         let isBanCommand = false;
 
-        // Verificação de imagem com #ban
-        if (msg?.imageMessage?.caption?.includes('#ban')) {
+        if (msg?.imageMessage?.caption?.toLowerCase().includes('#ban')) {
             isBanCommand = true;
         }
 
-        // Verificação de texto estendido com #ban (resposta/quote)
-        if (msg?.extendedTextMessage?.text?.includes('#ban') && 
-            msg?.extendedTextMessage?.contextInfo?.participant) {
+        if (
+            msg?.extendedTextMessage?.text?.toLowerCase().includes('#ban') &&
+            msg?.extendedTextMessage?.contextInfo?.participant
+        ) {
             isBanCommand = true;
         }
 
-        // Verificação de mensagem de texto
         const messageContent = msg?.conversation || msg?.extendedTextMessage?.text;
-        
+
         if (messageContent) {
-            // Verifica se começa com #ban @ ou @algo #ban
-            if (/^#ban\s+@/.test(messageContent) || /^@[^\s]+\s+#ban/.test(messageContent)) {
+            const lower = messageContent.toLowerCase();
+            if (
+                /^#ban\s+@/.test(lower) ||
+                /^@[^\s]+\s+#ban/.test(lower) ||
+                (lower.includes('#ban') &&
+                    (msg?.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0))
+            ) {
                 isBanCommand = true;
             }
         }
 
-        // Se NÃO for comando #ban, sai da função sem fazer nada
-        if (!isBanCommand) {
-            return;
-        }
+        if (!isBanCommand) return;
 
-        // AGORA SIM verificar se é admin (apenas para comandos #ban)
-        const isAdmin = groupMetadata.participants.some(
-            participant => participant.id === sender && participant.admin
-        );
+        // ─── Verifica se quem mandou é admin ────────────────────────────────
+        const isAdmin = groupMetadata.participants.some(p => {
+            if (!p.admin) return false;
+            if (p.id === sender || p.id === senderAlt) return true;
+            const pDigits = p.id.split('@')[0].replace(/:\d+$/, '');
+            const sDigits = sender.split('@')[0].replace(/:\d+$/, '');
+            const aDigits = senderAlt ? senderAlt.split('@')[0].replace(/:\d+$/, '') : '';
+            return pDigits === sDigits || (aDigits && pDigits === aDigits);
+        });
 
         if (!isAdmin) {
             await c.sendMessage(from, {
@@ -52,116 +67,218 @@ export async function handleBanMessage(c, message) {
             return;
         }
 
-        // Processar comando #ban com imagem
+        const targetGroup = isFromAdminGroup ? GRUPO_PRINCIPAL : from;
+
+        // ─── Processar #ban em imagem ───────────────────────────────────────
         if (msg?.imageMessage) {
             const imageCaption = msg.imageMessage.caption;
-
-            if (imageCaption?.includes('#ban')) {
+            if (imageCaption?.toLowerCase().includes('#ban')) {
                 const imageSender = msg.imageMessage.context?.participant;
                 if (imageSender && imageSender !== botId) {
-                    // Deleta comando do admin ANTES de executar ban
+                    const resolvedTarget = await resolveParticipantId(c, targetGroup, imageSender);
+                    if (!resolvedTarget) {
+                        await c.sendMessage(from, { text: '⚠️ Não foi possível identificar o usuário no grupo principal.' });
+                        return;
+                    }
                     await deleteCommandMessage(c, from, key);
-                    
-                    await executeBanUser(c, from, imageSender, groupMetadata);
+                    await executeBanUser(c, targetGroup, resolvedTarget, from);
                     return;
                 }
             }
         }
 
-        // Processar comando #ban em resposta/quote
+        // ─── Processar #ban em resposta/quote ───────────────────────────────
         if (msg?.extendedTextMessage) {
             const commentText = msg.extendedTextMessage.text;
-
-            if (commentText?.includes('#ban')) {
-                const quotedMessage = msg.extendedTextMessage.contextInfo;
-                const targetMessageId = quotedMessage?.stanzaId;
+            if (commentText?.toLowerCase().includes('#ban')) {
+                const quotedMessage     = msg.extendedTextMessage.contextInfo;
+                const targetMessageId   = quotedMessage?.stanzaId;
                 const targetParticipant = quotedMessage?.participant;
-                
+
                 if (targetParticipant && targetParticipant !== botId) {
-                    // 1. Deleta a mensagem do usuário que vai ser banido
-                    if (targetMessageId && isValidParticipant(targetParticipant)) {
+                    const resolvedTarget = await resolveParticipantId(c, targetGroup, targetParticipant);
+                    if (!resolvedTarget) {
+                        await c.sendMessage(from, { text: '⚠️ Não foi possível identificar o usuário no grupo principal.' });
+                        return;
+                    }
+
+                    if (targetMessageId) {
                         await deleteMessage(c, from, {
-                            remoteJid: from,
-                            id: targetMessageId,
+                            remoteJid:   from,
+                            id:          targetMessageId,
                             participant: targetParticipant
                         });
-                        
-                        // Pequeno delay após deletar mensagem do usuário
                         await new Promise(resolve => setTimeout(resolve, 500));
                     }
-                    
-                    // 2. Deleta o comando do admin
+
                     await deleteCommandMessage(c, from, key);
-                    
-                    // 3. Executa o banimento
-                    await executeBanUser(c, from, targetParticipant, groupMetadata);
+                    await executeBanUser(c, targetGroup, resolvedTarget, from);
                     return;
                 }
             }
         }
 
-        // Processar comando #ban com menção
+        // ─── Processar #ban com menção direta ───────────────────────────────
         if (messageContent) {
-            // Padrão 1: #ban @nome ou #ban @numero
-            const pattern1 = /^#ban\s+@([^\s]+)/;
-            const match1 = messageContent.match(pattern1);
-            
-            if (match1) {
-                const mentionedUserName = match1[1].trim().toLowerCase();
-                const userToBan = groupMetadata.participants.find(p =>
-                    p.id.toLowerCase().includes(mentionedUserName.replace(/ /g, ''))
-                );
+            const lower        = messageContent.toLowerCase().trim();
+            const contextInfo  = msg?.extendedTextMessage?.contextInfo;
+            const mentionedJid = contextInfo?.mentionedJid;
 
-                if (userToBan && userToBan.id !== botId) {
-                    // Deleta comando do admin
+            if (mentionedJid?.length > 0) {
+                const targetJid = mentionedJid[0];
+                if (targetJid && targetJid !== botId) {
+                    const resolvedTarget = await resolveParticipantId(c, targetGroup, targetJid);
+                    if (!resolvedTarget) {
+                        await c.sendMessage(from, { text: '⚠️ Não foi possível identificar o usuário no grupo principal.' });
+                        return;
+                    }
                     await deleteCommandMessage(c, from, key);
-                    
-                    await executeBanUser(c, from, userToBan.id, groupMetadata);
+                    await executeBanUser(c, targetGroup, resolvedTarget, from);
                 }
                 return;
             }
 
-            // Padrão 2: @nome #ban ou @numero #ban
-            const pattern2 = /^@([^\s]+)\s+#ban/;
-            const match2 = messageContent.match(pattern2);
-            
-            if (match2) {
-                const mentionedUserName = match2[1].trim().toLowerCase();
-                const userToBan = groupMetadata.participants.find(p =>
-                    p.id.toLowerCase().includes(mentionedUserName)
-                );
+            // Fallback — extrai dígitos do texto e busca no grupo
+            const match1   = lower.match(/^#ban\s+@([^\s]+)/);
+            const match2   = lower.match(/^@([^\s]+)\s+#ban/);
+            const rawToken = (match1?.[1] || match2?.[1] || '').replace(/\D/g, '');
+
+            if (rawToken.length >= 8) {
+                const targetMetadata = await c.groupMetadata(targetGroup);
+                const userToBan = targetMetadata.participants.find(p => {
+                    const pPhone  = (p.phoneNumber || '').replace(/\D/g, '');
+                    const pDigits = p.id.split('@')[0].replace(/:\d+$/, '');
+                    return pDigits.includes(rawToken)  ||
+                           rawToken.includes(pDigits)  ||
+                           (pPhone && (pPhone.includes(rawToken) || rawToken.includes(pPhone)));
+                });
 
                 if (userToBan && userToBan.id !== botId) {
-                    // Deleta comando do admin
                     await deleteCommandMessage(c, from, key);
-                    
-                    await executeBanUser(c, from, userToBan.id, groupMetadata);
+                    await executeBanUser(c, targetGroup, userToBan.id, from);
+                } else {
+                    console.warn(`⚠️ Usuário com token "${rawToken}" não encontrado no grupo ${targetGroup}`);
+                    await c.sendMessage(from, { text: `⚠️ Usuário não encontrado no grupo principal com o número informado.` });
                 }
-                return;
             }
+
+            return;
         }
+
     } catch (error) {
         console.error('Erro ao processar a mensagem:', error);
     }
 }
 
-// Função para deletar mensagem com múltiplas tentativas (igual ao alertaHandler)
+// ─── resolveParticipantId ────────────────────────────────────────────────────
+async function resolveParticipantId(c, groupId, participantId) {
+    try {
+        if (isValidParticipant(participantId)) {
+            console.log(`✅ participantId já válido: ${participantId}`);
+            return participantId;
+        }
+
+        console.log(`🔍 Resolvendo @lid: ${participantId} no grupo ${groupId}`);
+        const meta = await c.groupMetadata(groupId);
+        const rawDigits = participantId.split('@')[0].replace(/:\d+$/, '');
+
+        const match = meta.participants.find(p => {
+            if (p.phoneNumber) {
+                const ph = p.phoneNumber.replace(/\D/g, '');
+                return ph === rawDigits || ph.endsWith(rawDigits) || rawDigits.endsWith(ph);
+            }
+            const pDigits = p.id.split('@')[0].replace(/:\d+$/, '');
+            return pDigits === rawDigits ||
+                   pDigits.endsWith(rawDigits) ||
+                   rawDigits.endsWith(pDigits);
+        });
+
+        if (match) {
+            console.log(`✅ @lid resolvido: ${participantId} → ${match.id}`);
+            return match.id;
+        }
+
+        console.warn(`⚠️ Não resolveu @lid: ${participantId} (dígitos: ${rawDigits})`);
+        return null;
+
+    } catch (err) {
+        console.error('Erro ao resolver participantId:', err.message);
+        return null;
+    }
+}
+
+// ─── executeBanUser ─────────────────────────────────────────────────────────
+async function executeBanUser(c, groupId, userId, commandOrigin) {
+    try {
+        // Busca metadados ANTES de remover para garantir que o participante ainda está listado
+        const targetMetadata = await c.groupMetadata(groupId);
+
+        const isUserAdmin = targetMetadata.participants.some(
+            p => p.id === userId && p.admin
+        );
+
+        if (isUserAdmin) {
+            const userNumber = userId.split('@')[0];
+            await c.sendMessage(commandOrigin, {
+                text: `👏🍻 *DﾑMﾑS* 💃🔥 *Dﾑ* *NIGӇԵ* 💃🎶🍾🍸\n\n⚠️ *Ação não permitida!*\n\n❌ Não é possível remover @${userNumber} pois é *administrador* do grupo.`,
+                mentions: [userId]
+            });
+            console.log('O usuário é administrador e não pode ser banido.');
+            return;
+        }
+
+        // ─── Extrai o número real via phoneNumber dos metadados ──────────────
+        // userId pode chegar como @lid mesmo após resolveParticipantId.
+        // O campo phoneNumber (igual ao rankdamasHandler) contém sempre o número real.
+        let phoneDigits = userId.split('@')[0].replace(/\D/g, ''); // fallback
+
+        const rawDigits = userId.split('@')[0].replace(/:\d+$/, '');
+        const matchedParticipant = targetMetadata.participants.find(p => {
+            const pDigits = p.id.split('@')[0].replace(/:\d+$/, '');
+            return pDigits === rawDigits;
+        });
+
+        if (matchedParticipant?.phoneNumber) {
+            // phoneNumber pode vir como "5519997998496@s.whatsapp.net" ou só "5519997998496"
+            phoneDigits = matchedParticipant.phoneNumber.split('@')[0].replace(/\D/g, '');
+            console.log(`✅ Número real extraído via phoneNumber: ${phoneDigits}`);
+        } else {
+            console.warn(`⚠️ phoneNumber não encontrado para ${userId}, usando fallback: ${phoneDigits}`);
+        }
+
+        // 1. Remove do grupo
+        await c.groupParticipantsUpdate(groupId, [userId], 'remove');
+        console.log(`✅ Usuário ${userId} removido do grupo ${groupId}`);
+
+        // 2. Adiciona na blacklist com o número real
+        const motivo = `Banido via #ban em ${new Date().toLocaleDateString('pt-BR')}`;
+        const resultBlacklist = await addToBlacklist(phoneDigits, motivo);
+        console.log(`✅ Blacklist: ${resultBlacklist}`);
+
+        // 3. Confirma
+        await c.sendMessage(commandOrigin, {
+            text: `👏🍻 *DﾑMﾑS* 💃🔥 *Dﾑ* *NIGӇԵ* 💃🎶🍾🍸\n\n🚫 @${phoneDigits} foi *removido e adicionado à blacklist* com sucesso!`,
+            mentions: [userId]
+        });
+
+    } catch (error) {
+        console.error('Erro ao banir usuário:', error);
+    }
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
 const deleteMessage = async (sock, groupId, messageKey) => {
     const delays = [0, 100, 500, 1000, 2000, 5000];
-    
+
     for (let i = 0; i < delays.length; i++) {
         try {
-            if (delays[i] > 0) {
-                await new Promise(r => setTimeout(r, delays[i]));
-            }
-            
+            if (delays[i] > 0) await new Promise(r => setTimeout(r, delays[i]));
             const key = {
-                remoteJid: messageKey.remoteJid || groupId,
-                fromMe: false,
-                id: messageKey.id,
+                remoteJid:   messageKey.remoteJid || groupId,
+                fromMe:      false,
+                id:          messageKey.id,
                 participant: messageKey.participant
             };
-            
             await sock.sendMessage(groupId, { delete: key });
             console.log(`✅ Mensagem do usuário deletada (tentativa ${i + 1})`);
             return true;
@@ -174,21 +291,18 @@ const deleteMessage = async (sock, groupId, messageKey) => {
     return false;
 };
 
-// Função para deletar comando do admin
 const deleteCommandMessage = async (sock, groupId, messageKey) => {
     const delays = [0, 100, 500, 1000, 2000, 5000];
-    
+
     for (let i = 0; i < delays.length; i++) {
         try {
             if (delays[i] > 0) await new Promise(r => setTimeout(r, delays[i]));
-            
             const key = {
-                remoteJid: messageKey.remoteJid || groupId,
-                fromMe: false,
-                id: messageKey.id,
+                remoteJid:   messageKey.remoteJid || groupId,
+                fromMe:      false,
+                id:          messageKey.id,
                 participant: messageKey.participant
             };
-            
             await sock.sendMessage(groupId, { delete: key });
             console.log(`✅ Comando #ban deletado (tentativa ${i + 1})`);
             return true;
@@ -199,40 +313,13 @@ const deleteCommandMessage = async (sock, groupId, messageKey) => {
     return false;
 };
 
-// Função para validar participante (copiada do alertaHandler)
 function isValidParticipant(participant) {
     if (!participant) return false;
-    
+    if (!participant.endsWith('@s.whatsapp.net')) return false;
     const participantNumber = participant.split('@')[0];
-    return !participantNumber.includes(':') && 
-           !participantNumber.startsWith('0') &&
-           participantNumber.length >= 10;
-}
-
-// Função auxiliar para executar banimento de usuário
-async function executeBanUser(c, groupId, userId, groupMetadata) {
-    try {
-        // Verificar se o usuário a ser banido é administrador
-        const isUserAdmin = groupMetadata.participants.some(
-            participant => participant.id === userId && participant.admin
-        );
-
-        if (isUserAdmin) {
-            // Obter o nome/número do usuário
-            const userNumber = userId.split('@')[0];
-            const userName = groupMetadata.participants.find(p => p.id === userId)?.notify || userNumber;
-            
-            await c.sendMessage(groupId, {
-                text: `👏🍻 *DﾑMﾑS* 💃🔥 *Dﾑ* *NIGӇԵ* 💃🎶🍾🍸\n\n⚠️ *Ação não permitida!*\n\n❌ Não é possível remover @${userName} pois é *administrador* do grupo.`,
-                mentions: [userId]
-            });
-            console.log('O usuário é administrador e não pode ser banido.');
-            return;
-        }
-
-        await c.groupParticipantsUpdate(groupId, [userId], 'remove');
-        console.log(`Usuário ${userId} removido com sucesso.`);
-    } catch (error) {
-        console.error('Erro ao banir usuário:', error);
-    }
+    return (
+        !participantNumber.includes(':') &&
+        !participantNumber.startsWith('0') &&
+        participantNumber.length >= 8
+    );
 }

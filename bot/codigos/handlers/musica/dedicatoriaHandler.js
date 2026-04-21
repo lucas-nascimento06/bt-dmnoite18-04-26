@@ -343,6 +343,43 @@ async function processarFila() {
     }
 }
 
+// ── RELOAD CONFIG VIA COMANDO ────────────────────────────────────────────────
+
+export async function handleReloadConfig(sock, message, from) {
+    const content =
+        message.message?.conversation ||
+        message.message?.extendedTextMessage?.text || '';
+
+    if (!/^#atualizarmusicas$/i.test(content.trim())) return false;
+
+    const senderId = message.key.participant || message.key.remoteJid;
+
+    await sock.sendMessage(from, {
+        text: '🔄 Recarregando configuração do GitHub...',
+        mentions: [senderId],
+        quoted: message
+    });
+
+    try {
+        await carregarConfigDedicatoria();
+        await sock.sendMessage(from, {
+            text: '✅ Config atualizada com sucesso! Novas frases e poster já estão valendo.',
+            mentions: [senderId],
+            quoted: message
+        });
+        console.log('✅ [RELOAD] Config recarregada via comando.');
+    } catch (err) {
+        await sock.sendMessage(from, {
+            text: `❌ Erro ao recarregar config: ${err.message}`,
+            mentions: [senderId],
+            quoted: message
+        });
+        console.error('❌ [RELOAD] Falha ao recarregar config:', err.message);
+    }
+
+    return true;
+}
+
 // ── HANDLER PRINCIPAL ────────────────────────────────────────────────────────
 
 export async function handleDedicatoriaCommands(sock, message, from) {

@@ -16,7 +16,10 @@ import { handleStickerCommand } from '../../features/stickerHandler.js';
 import { processarComandoRegras } from '../../features/boasVindas.js';
 import { configurarDespedida } from '../../features/despedidaMembro.js';
 import { handlePoemas, handleAtualizarPoemas } from '../command/poema.js';
-import { handleBanMessage } from '../../moderation/banHandler.js'; // ✅ NOVO
+import { handleReloadConfig } from '../../features/dedicatoriaHandler.js'
+import { handleBanMessage } from '../../moderation/banHandler.js'; 
+
+
 
 // ✅ NOVOS IMPORTS — rainha / ranking
 import { ativosHandler, inativosHandler } from '../command/ativosHandler.js';
@@ -228,6 +231,12 @@ export async function handleMessages(sock, message) {
       if (DEBUG_MODE) console.log('🔄 Comando #atualizarpoemas detectado!');
       await handleAtualizarPoemas(sock, message, [], from);
       return;
+    }
+      // 🎵 Atualizar config de dedicatória
+    if (lowerContent === '#atualizarmusicas') {
+      if (DEBUG_MODE) console.log('🔄 Comando #atualizarmusicas detectado!');
+      const reloadHandled = await handleReloadConfig(sock, message, from);
+      if (reloadHandled) return;
     }
 
     // 🚨 #alerta

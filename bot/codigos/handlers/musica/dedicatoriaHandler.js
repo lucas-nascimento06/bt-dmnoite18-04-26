@@ -8,6 +8,8 @@ import { baixarMusicaBuffer, obterDadosMusica, buscarUrlPorNome } from './downlo
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 🎙️ SISTEMA DE DEDICATÓRIA MUSICAL - ESTILO RÁDIO ROMÂNTICA
+// Uso: #play [música] @pessoa
+// Exemplo: #play Sonho de Ícaro @monica
 // ─────────────────────────────────────────────────────────────────────────────
 
 const URL_CONFIG = 'https://raw.githubusercontent.com/lucas-nascimento06/dedicatoria-music-radio-dmng/refs/heads/main/dedicatoria-config.json';
@@ -82,10 +84,10 @@ async function gerarThumbnail(buffer, size = 256) {
     }
 }
 
-// ── FIX: parsearComando limpa @número e @nome do termo ──────────────────────
+// ── PARSEAR COMANDO ──────────────────────────────────────────────────────────
 function parsearComando(content, message) {
     const semPrefixo = content
-        .replace(/^#damas\s+(musica|music)\s*/i, '')
+        .replace(/^#play\s*/i, '')
         .trim();
 
     if (!semPrefixo) return null;
@@ -93,17 +95,17 @@ function parsearComando(content, message) {
     const mentionedJids =
         message.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
 
-    // Captura o nome de exibição ANTES de limpar
+    // Captura nome de exibição ANTES de limpar
     const atMatch = semPrefixo.match(/@(\S+)/);
     const nomeExibicao = atMatch
         ? atMatch[1].replace(/\d+/g, '').trim() || null
         : null;
 
-    // Remove TODAS as menções (@número e @nome) do termo de busca
+    // Remove TODAS as menções do termo de busca
     const termoLimpo = semPrefixo
-        .replace(/@\d+/g, '')   // remove @78263347101865
-        .replace(/@\w+/g, '')   // remove @monica, @alguem
-        .replace(/\s+/g, ' ')   // normaliza espaços duplos
+        .replace(/@\d+/g, '')
+        .replace(/@\w+/g, '')
+        .replace(/\s+/g, ' ')
         .trim();
 
     console.log(`🧹 [DEDICATÓRIA] Termo limpo: "${termoLimpo}"`);
@@ -115,7 +117,7 @@ function parsearComando(content, message) {
 async function baixarImagemPoster() {
     garantirConfig();
     try {
-        console.log('🖼️ Baixando imagem do poster inicial...');
+        console.log('🖼️ Baixando poster da dedicatória...');
         const response = await axios.get(config.poster_url, {
             responseType: 'arraybuffer',
             timeout: 10000,
@@ -123,10 +125,7 @@ async function baixarImagemPoster() {
             maxRedirects: 5
         });
         const buffer = Buffer.from(response.data, 'binary');
-        if (buffer.length < 1000) {
-            console.warn('⚠️ Poster muito pequeno, ignorando');
-            return null;
-        }
+        if (buffer.length < 1000) return null;
         console.log(`✅ Poster baixado: ${buffer.length} bytes`);
         return buffer;
     } catch (err) {
@@ -181,7 +180,6 @@ async function baixarThumbnail(url) {
 async function processarDedicatoria(sock, from, termo, senderId, mentionedJids, nomeExibicao, originalMessage) {
     const caminhoTemp = path.join('./downloads', `temp_dedic_${Date.now()}.mp3`);
 
-    // Resolve nomes para exibição
     const nomeQuemPediu = `@${senderId.split('@')[0]}`;
     const destinatarioJid = mentionedJids.length > 0 ? mentionedJids[0] : null;
     const nomeDestinatario = destinatarioJid
@@ -189,7 +187,6 @@ async function processarDedicatoria(sock, from, termo, senderId, mentionedJids, 
         : (nomeExibicao ? `@${nomeExibicao}` : 'você');
     const allMentions = [senderId, ...(destinatarioJid ? [destinatarioJid] : [])];
 
-    // Contexto de reply para referenciar a mensagem original
     const replyContext = {
         stanzaId: originalMessage.key.id,
         participant: originalMessage.key.participant || originalMessage.key.remoteJid,
@@ -213,11 +210,11 @@ async function processarDedicatoria(sock, from, termo, senderId, mentionedJids, 
                     caption: captionAviso,
                     mentions: allMentions,
                     jpegThumbnail: thumb,
-                    contextInfo: replyContext   // ← FIX: poster agora responde a mensagem original
+                    contextInfo: replyContext
                 });
-                console.log('✅ Poster enviado com reply!');
+                console.log('✅ Poster da dedicatória enviado!');
             } catch (e) {
-                console.warn('⚠️ Falha ao enviar poster com imagem, enviando texto:', e.message);
+                console.warn('⚠️ Falha ao enviar poster, enviando texto:', e.message);
                 await sock.sendMessage(from, {
                     text: captionAviso,
                     mentions: allMentions,
@@ -238,7 +235,7 @@ async function processarDedicatoria(sock, from, termo, senderId, mentionedJids, 
         const dados = await obterDadosMusica(urlResult);
         console.log(`🎵 Encontrada: ${dados.titulo} — ${dados.autor}`);
 
-        // ── 3. THUMBNAIL + INFO DA MÚSICA ────────────────────────────────────
+        // ── 3. THUMBNAIL + INFO ──────────────────────────────────────────────
         let thumbnailBuffer = null;
         if (dados.thumbnailUrl) thumbnailBuffer = await baixarThumbnail(dados.thumbnailUrl);
 
@@ -308,13 +305,12 @@ async function processarDedicatoria(sock, from, termo, senderId, mentionedJids, 
         });
 
         if (fs.existsSync(caminhoFinal)) fs.unlinkSync(caminhoFinal);
-        console.log(`✅ [DEDICATÓRIA] Concluída!`);
+        console.log(`✅ [DEDICATÓRIA] Concluída com sucesso!`);
 
     } catch (err) {
         console.error('❌ [DEDICATÓRIA] Erro:', err.message);
         if (fs.existsSync(caminhoTemp)) fs.unlinkSync(caminhoTemp);
 
-        // Detecta tipo de erro para mensagem adequada
         const chaveErro = err.message?.includes('timeout') ? 'erro_timeout' : 'erro_nao_encontrado';
         const mensagemErro = getMensagem(chaveErro, { termo });
 
@@ -326,7 +322,7 @@ async function processarDedicatoria(sock, from, termo, senderId, mentionedJids, 
     }
 }
 
-// ── FILA DE PROCESSAMENTO ────────────────────────────────────────────────────
+// ── FILA ─────────────────────────────────────────────────────────────────────
 
 async function processarFila() {
     if (processandoDedicatoria || filaDedicatorias.length === 0) return;
@@ -354,12 +350,14 @@ export async function handleDedicatoriaCommands(sock, message, from) {
         message.message?.conversation ||
         message.message?.extendedTextMessage?.text || '';
 
-    if (!/^#damas\s+(musica|music)\s/i.test(content)) return false;
+    // Só responde a #play
+    if (!/^#play\s/i.test(content)) return false;
 
     const temMencaoNoTexto = /@\S+/.test(content);
     const temMencaoResolvida =
         (message.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length || 0) > 0;
 
+    // Sem menção = música normal, deixa musicaHandler tratar
     if (!temMencaoNoTexto && !temMencaoResolvida) return false;
 
     const parsed = parsearComando(content, message);

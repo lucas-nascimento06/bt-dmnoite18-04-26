@@ -29,7 +29,7 @@ export async function handleBasicCommands(sock, message, from, userId, content, 
     // Comando inválido #da
     if (!handled && content.toLowerCase().startsWith('#da')) {
         await sock.sendMessage(from, {
-            text: '❌ Comando inválido.\n✅ Exemplo: #damas music [nome da música]'
+            text: '❌ Comando inválido.\n✅ Exemplo: #play [nome da música]'
         });
     }
 }

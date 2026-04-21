@@ -16,7 +16,7 @@ import { handleStickerCommand } from '../../features/stickerHandler.js';
 import { processarComandoRegras } from '../../features/boasVindas.js';
 import { configurarDespedida } from '../../features/despedidaMembro.js';
 import { handlePoemas, handleAtualizarPoemas } from '../command/poema.js';
-import { handleReloadConfig } from '../../../codigos/handlers/musica/dedicatoriaHandler.js'
+import { handleReloadConfig } from '../musica/dedicatoriaHandler.js'
 import { handleBanMessage } from '../../moderation/banHandler.js'; 
 
 

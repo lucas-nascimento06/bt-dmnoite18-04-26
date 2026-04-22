@@ -10,6 +10,57 @@ import { getRainhaDoDia } from '../../utils/rainhaModel.js';
 const NOME_GRUPO = '👏🍻 *DﾑMﾑS* 💃🔥 *Dﾑ* *NIGӇԵ* 💃🎶🍾🍸';
 const FOTO_URL   = 'https://i.ibb.co/hRL49PzN/4d2c6f7c-c383-4643-b278-8be8d6be4111-1.png';
 
+// ============================================================
+//  Helpers de verificação de admin (baseado em redefinirFecharGrupo.js)
+// ============================================================
+
+async function checkIfUserIsAdmin(client, groupId, userId) {
+  try {
+    const groupMetadata = await client.groupMetadata(groupId);
+
+    const participant = groupMetadata.participants.find(p => {
+      const pId = p.id.includes('@') ? p.id : `${p.id}@s.whatsapp.net`;
+      const uId = userId.includes('@') ? userId : `${userId}@s.whatsapp.net`;
+      return pId === uId || p.id === userId || pId.split('@')[0] === uId.split('@')[0];
+    });
+
+    if (!participant) return false;
+
+    return participant.admin === 'admin' || participant.admin === 'superadmin';
+  } catch (error) {
+    console.error('❌ Erro ao verificar admin do usuário:', error);
+    return false;
+  }
+}
+
+const deleteCommandMessage = async (client, groupId, messageKey) => {
+  const delays = [0, 100, 500, 1000, 2000, 5000];
+
+  for (let i = 0; i < delays.length; i++) {
+    try {
+      if (delays[i] > 0) await new Promise(r => setTimeout(r, delays[i]));
+
+      const key = {
+        remoteJid: messageKey.remoteJid || groupId,
+        fromMe: false,
+        id: messageKey.id,
+        participant: messageKey.participant,
+      };
+
+      await client.sendMessage(groupId, { delete: key });
+      console.log(`✅ Comando deletado (tentativa ${i + 1})`);
+      return true;
+    } catch {
+      console.log(`❌ Tentativa ${i + 1} de deletar comando falhou`);
+    }
+  }
+  return false;
+};
+
+// ============================================================
+//  Helpers de imagem
+// ============================================================
+
 async function baixarImagem() {
   try {
     const res = await axios.get(FOTO_URL, { responseType: 'arraybuffer' });
@@ -51,6 +102,10 @@ async function enviarComImagem(client, grupoId, buffer, legenda, mencoes) {
     }
   }
 }
+
+// ============================================================
+//  Frases
+// ============================================================
 
 const FRASES_RAINHA = [
   '👑💥 *ATENÇÃO, TROPINHA DO FIM DE TABELA!* 💥👑\n_Hoje não teve competição, teve é H U M I L H A Ç Ã O em HD, 4K, com legenda em braile e narração em coreano! Ela chegou, dominou, dançou no tapete vermelho e ainda deixou migalhas pros outros tentarem juntar com lupa!_ 🧐😂',
@@ -109,7 +164,7 @@ const FRASES_RAINHA = [
 
   '🔥👑 *HOJE FOI DOMÍNIO TOTAL...* 👑🔥\n_Pode encerrar o campeonato, devolver os ingressos, apagar o placar e mandar todo mundo pra casa! O troféu já tem dona, a faixa já tá escrita, e o pódio tem espaço só pra ela!_ 🏆😂',
 
-  '😂💥 *ELA TRANSFORNOU O GRUPO NUM SHOW AO VIVO!* 💥😂\n_Com direito a abertura com fanfarra, intervalo pra comercial da Casas Bahia, participação especial do Luciano Huck e fechamento com chuva de papel confete!_ 🎉😂',
+  '😂💥 *ELA TRANSFORNOU O GRUPO NUM SHOW AO VIVO!* 💥😂\n_Com direito a abertura com fanfarra, intervalo pra comercial das Casas Bahia, participação especial do Luciano Huck e fechamento com chuva de papel confete!_ 🎉😂',
 
   '👑🤣 *HOJE ELA TAVA IMPOSSÍVEL, INACREDITÁVEL...* 🤣👑\n_E INSUPORTAVELMENTE BOA! O nível dela tava tão alto que o próprio grupo pediu pra ela dar um desconto, mas ela respondeu: "Desconto? Só na Black Friday, amores!"_ 🛒😂',
 
@@ -151,22 +206,47 @@ const FRASES_RAINHA = [
 
   '🤣🔥 *HOJE ELA VEIO PRA TRABALHAR MESMO!* 🔥🤣\n_Trabalhou igual condenada à humilhação perpétua! Fez hora extra, dobrou turno, cobriu férias dos outros e ainda pediu pra fazer banco de horas!_ 💼😂',
 
-  '👑💥 *ENCERRAMOS POR HOJE...* 💥👑\n_A VENCEDORA JÁ FOI DEFINIDA, O TROFÉU JÁ FOI ENTREGUE E A FESTA JÁ ACABOU! Vocês podem tentar de novo amanhã, mas aviso: ela já confirmou presença e pediu música no paredão!_ 🎤😂'
+  '👑💥 *ENCERRAMOS POR HOJE...* 💥👑\n_A VENCEDORA JÁ FOI DEFINIDA, O TROFÉU JÁ FOI ENTREGUE E A FESTA JÁ ACABOU! Vocês podem tentar de novo amanhã, mas aviso: ela já confirmou presença e pediu música no paredão!_ 🎤😂',
 ];
 
 function fraseAleatoria() {
   return FRASES_RAINHA[Math.floor(Math.random() * FRASES_RAINHA.length)];
 }
 
+// ============================================================
+//  Handler principal
+// ============================================================
+
 export async function rainhaHandler(client, message) {
   const grupoId = message.key.remoteJid;
+  const userId  = message.key.participant || message.key.remoteJid;
 
   try {
+    // 1️⃣ Verificar se é um grupo
+    if (!grupoId.endsWith('@g.us')) {
+      return client.sendMessage(grupoId, {
+        text: `${NOME_GRUPO}\n\n❌ Este comando só funciona em grupos!`,
+      });
+    }
+
+    // 2️⃣ Verificar se o usuário é administrador
+    const isAdmin = await checkIfUserIsAdmin(client, grupoId, userId);
+
+    if (!isAdmin) {
+      // Deletar o comando do não-admin silenciosamente
+      await deleteCommandMessage(client, grupoId, message.key);
+
+      return client.sendMessage(grupoId, {
+        text: `${NOME_GRUPO}\n\n❌ Apenas *administradores* podem usar o comando *#rainhadamas*!`,
+      });
+    }
+
+    // 3️⃣ Buscar a rainha do dia
     const rainha = await getRainhaDoDia(grupoId);
 
     if (!rainha) {
       return client.sendMessage(grupoId, {
-        text: '👑 Ainda não há mensagens registradas hoje para eleger a Rainha do Dia!',
+        text: `${NOME_GRUPO}\n\n👑 Ainda não há mensagens registradas hoje para eleger a Rainha do Dia!`,
       });
     }
 
@@ -194,7 +274,7 @@ export async function rainhaHandler(client, message) {
   } catch (err) {
     console.error('[rainhaHandler] Erro:', err.message);
     await client.sendMessage(grupoId, {
-      text: '❌ Ocorreu um erro ao buscar a Rainha do Dia. Tente novamente!',
+      text: `${NOME_GRUPO}\n\n❌ Ocorreu um erro ao buscar a Rainha do Dia. Tente novamente!`,
     });
   }
 }

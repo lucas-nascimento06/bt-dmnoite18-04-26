@@ -33,15 +33,22 @@ export async function handleBanMessage(c, message) {
             isBanCommand = true;
         }
 
-        const messageContent = msg?.conversation || msg?.extendedTextMessage?.text;
+        // Menção direta: só extendedTextMessage carrega mentionedJid
+        if (
+            msg?.extendedTextMessage?.text?.toLowerCase().includes('#ban') &&
+            msg?.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0
+        ) {
+            isBanCommand = true;
+        }
+
+        // Prioriza extendedTextMessage pois é o único que carrega contextInfo/mentionedJid
+        const messageContent = msg?.extendedTextMessage?.text || msg?.conversation;
 
         if (messageContent) {
             const lower = messageContent.toLowerCase();
             if (
                 /^#ban\s+@/.test(lower) ||
-                /^@[^\s]+\s+#ban/.test(lower) ||
-                (lower.includes('#ban') &&
-                    (msg?.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0))
+                /^@[^\s]+\s+#ban/.test(lower)
             ) {
                 isBanCommand = true;
             }
@@ -70,14 +77,15 @@ export async function handleBanMessage(c, message) {
         const targetGroup = isFromAdminGroup ? GRUPO_PRINCIPAL : from;
 
         // ─── Processar #ban em imagem ───────────────────────────────────────
+        // CORRIGIDO: era msg.imageMessage.context?.participant (campo inexistente)
         if (msg?.imageMessage) {
             const imageCaption = msg.imageMessage.caption;
             if (imageCaption?.toLowerCase().includes('#ban')) {
-                const imageSender = msg.imageMessage.context?.participant;
+                const imageSender = msg.imageMessage.contextInfo?.participant;
                 if (imageSender && imageSender !== botId) {
                     const resolvedTarget = await resolveParticipantId(c, targetGroup, imageSender);
                     if (!resolvedTarget) {
-                        await c.sendMessage(from, { text: '⚠️ Não foi possível identificar o usuário no grupo principal.' });
+                        await c.sendMessage(from, { text: '⚠️ Não foi possível identificar o usuário no grupo.' });
                         return;
                     }
                     await deleteCommandMessage(c, from, key);
@@ -98,7 +106,7 @@ export async function handleBanMessage(c, message) {
                 if (targetParticipant && targetParticipant !== botId) {
                     const resolvedTarget = await resolveParticipantId(c, targetGroup, targetParticipant);
                     if (!resolvedTarget) {
-                        await c.sendMessage(from, { text: '⚠️ Não foi possível identificar o usuário no grupo principal.' });
+                        await c.sendMessage(from, { text: '⚠️ Não foi possível identificar o usuário no grupo.' });
                         return;
                     }
 
@@ -129,7 +137,7 @@ export async function handleBanMessage(c, message) {
                 if (targetJid && targetJid !== botId) {
                     const resolvedTarget = await resolveParticipantId(c, targetGroup, targetJid);
                     if (!resolvedTarget) {
-                        await c.sendMessage(from, { text: '⚠️ Não foi possível identificar o usuário no grupo principal.' });
+                        await c.sendMessage(from, { text: '⚠️ Não foi possível identificar o usuário no grupo.' });
                         return;
                     }
                     await deleteCommandMessage(c, from, key);
@@ -138,7 +146,7 @@ export async function handleBanMessage(c, message) {
                 return;
             }
 
-            // Fallback — extrai dígitos do texto e busca no grupo
+            // Fallback — extrai dígitos do texto e busca no grupo (usado pela sala de admins)
             const match1   = lower.match(/^#ban\s+@([^\s]+)/);
             const match2   = lower.match(/^@([^\s]+)\s+#ban/);
             const rawToken = (match1?.[1] || match2?.[1] || '').replace(/\D/g, '');
@@ -158,7 +166,7 @@ export async function handleBanMessage(c, message) {
                     await executeBanUser(c, targetGroup, userToBan.id, from);
                 } else {
                     console.warn(`⚠️ Usuário com token "${rawToken}" não encontrado no grupo ${targetGroup}`);
-                    await c.sendMessage(from, { text: `⚠️ Usuário não encontrado no grupo principal com o número informado.` });
+                    await c.sendMessage(from, { text: `⚠️ Usuário não encontrado no grupo com o número informado.` });
                 }
             }
 
@@ -171,34 +179,56 @@ export async function handleBanMessage(c, message) {
 }
 
 // ─── resolveParticipantId ────────────────────────────────────────────────────
+// CORRIGIDO: agora tenta bater o @lid diretamente na lista de participantes
+// antes de tentar resolver por dígitos. Isso resolve o caso do grupo principal
+// onde menções chegam como @lid (ID interno do WhatsApp MD), que não contém
+// dígitos de telefone para comparar.
 async function resolveParticipantId(c, groupId, participantId) {
     try {
+        if (!participantId) return null;
+
+        // Já é @s.whatsapp.net válido → retorna direto
         if (isValidParticipant(participantId)) {
             console.log(`✅ participantId já válido: ${participantId}`);
             return participantId;
         }
 
-        console.log(`🔍 Resolvendo @lid: ${participantId} no grupo ${groupId}`);
+        console.log(`🔍 Resolvendo: ${participantId} no grupo ${groupId}`);
         const meta = await c.groupMetadata(groupId);
-        const rawDigits = participantId.split('@')[0].replace(/:\d+$/, '');
 
-        const match = meta.participants.find(p => {
-            if (p.phoneNumber) {
-                const ph = p.phoneNumber.replace(/\D/g, '');
-                return ph === rawDigits || ph.endsWith(rawDigits) || rawDigits.endsWith(ph);
-            }
+        // ── Estratégia 1: bate o id direto na lista (resolve @lid do grupo principal) ──
+        // Quando a menção vem de dentro do grupo principal, o WhatsApp envia o
+        // participant como @lid. Esse @lid já está na lista de participantes — basta
+        // encontrá-lo diretamente. O Baileys aceita @lid no groupParticipantsUpdate.
+        const byId = meta.participants.find(p => p.id === participantId);
+        if (byId) {
+            console.log(`✅ id encontrado direto na lista: ${byId.id}`);
+            return byId.id;
+        }
+
+        // ── Estratégia 2: resolve por dígitos (usado pela sala de admins com número digitado) ──
+        const rawDigits = participantId.split('@')[0].replace(/:\d+$/, '');
+        console.log(`🔍 Tentando por dígitos: ${rawDigits}`);
+
+        const byDigits = meta.participants.find(p => {
+            const phone   = (p.phoneNumber || '').split('@')[0].replace(/\D/g, '');
             const pDigits = p.id.split('@')[0].replace(/:\d+$/, '');
             return pDigits === rawDigits ||
                    pDigits.endsWith(rawDigits) ||
-                   rawDigits.endsWith(pDigits);
+                   rawDigits.endsWith(pDigits) ||
+                   (phone && (
+                       phone === rawDigits ||
+                       phone.endsWith(rawDigits) ||
+                       rawDigits.endsWith(phone)
+                   ));
         });
 
-        if (match) {
-            console.log(`✅ @lid resolvido: ${participantId} → ${match.id}`);
-            return match.id;
+        if (byDigits) {
+            console.log(`✅ resolvido por dígitos: ${byDigits.id}`);
+            return byDigits.id;
         }
 
-        console.warn(`⚠️ Não resolveu @lid: ${participantId} (dígitos: ${rawDigits})`);
+        console.warn(`⚠️ Não resolveu: ${participantId} (rawDigits: ${rawDigits})`);
         return null;
 
     } catch (err) {
@@ -228,8 +258,6 @@ async function executeBanUser(c, groupId, userId, commandOrigin) {
         }
 
         // ─── Extrai o número real via phoneNumber dos metadados ──────────────
-        // userId pode chegar como @lid mesmo após resolveParticipantId.
-        // O campo phoneNumber (igual ao rankdamasHandler) contém sempre o número real.
         let phoneDigits = userId.split('@')[0].replace(/\D/g, ''); // fallback
 
         const rawDigits = userId.split('@')[0].replace(/:\d+$/, '');
@@ -239,7 +267,6 @@ async function executeBanUser(c, groupId, userId, commandOrigin) {
         });
 
         if (matchedParticipant?.phoneNumber) {
-            // phoneNumber pode vir como "5519997998496@s.whatsapp.net" ou só "5519997998496"
             phoneDigits = matchedParticipant.phoneNumber.split('@')[0].replace(/\D/g, '');
             console.log(`✅ Número real extraído via phoneNumber: ${phoneDigits}`);
         } else {
@@ -255,11 +282,26 @@ async function executeBanUser(c, groupId, userId, commandOrigin) {
         const resultBlacklist = await addToBlacklist(phoneDigits, motivo);
         console.log(`✅ Blacklist: ${resultBlacklist}`);
 
-        // 3. Confirma
-        await c.sendMessage(commandOrigin, {
+        // 3. Confirma e auto-deleta após 5 segundos
+        const sentConfirm = await c.sendMessage(commandOrigin, {
             text: `👏🍻 *DﾑMﾑS* 💃🔥 *Dﾑ* *NIGӇԵ* 💃🎶🍾🍸\n\n🚫 @${phoneDigits} foi *removido e adicionado à blacklist* com sucesso!`,
             mentions: [userId]
         });
+
+        setTimeout(async () => {
+            try {
+                await c.sendMessage(commandOrigin, {
+                    delete: {
+                        remoteJid: commandOrigin,
+                        fromMe:    true,
+                        id:        sentConfirm.key.id
+                    }
+                });
+                console.log(`✅ Mensagem de confirmação auto-deletada`);
+            } catch (err) {
+                console.warn(`⚠️ Não foi possível auto-deletar confirmação: ${err.message}`);
+            }
+        }, 5000);
 
     } catch (error) {
         console.error('Erro ao banir usuário:', error);

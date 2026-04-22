@@ -1,4 +1,4 @@
-// messageHandler.js - VERSÃO ATUALIZADA COM MENU OWNER + RAINHA/RANKING
+// messageHandler.js - VERSÃO CORRIGIDA
 import AutoTagHandler from '../../moderation/autoTagHandler.js';
 import ReplyTagHandler from '../../moderation/replyTagHandler.js';
 import olhinhoHandler from './olhinhoHandler.js';
@@ -19,19 +19,13 @@ import { handlePoemas, handleAtualizarPoemas } from '../command/poema.js';
 import { handleReloadConfig, handleDedicatoriaCommands } from '../musica/dedicatoriaHandler.js'
 import { handleBanMessage } from '../../moderation/banHandler.js'; 
 import { handleNotCommand } from '../command/notCommandHandler.js';
+import { handleChamarCommand } from '../command/chamarHandler.js';
 
-
-
-// ✅ NOVOS IMPORTS — rainha / ranking
+// ✅ IMPORTS — rainha / ranking
 import { ativosHandler, inativosHandler } from '../command/ativosHandler.js';
 import { rankdamasHandler } from '../command/rankdamasHandler.js';
 import { rainhaHandler } from '../command/rainhaHandler.js';
-import {
-  registrarMensagem,
-  getInativosComDias,
-  getFantasmas,
-  fecharDia,
-} from '../../utils/rainhaModel.js';
+import { registrarMensagem } from '../../utils/rainhaModel.js';
 
 const autoTag = new AutoTagHandler();
 const replyTag = new ReplyTagHandler();
@@ -234,13 +228,13 @@ export async function handleMessages(sock, message) {
       return;
     }
 
-     // 🎙️ Dedicatória musical (#play música @pessoa)
+    // 🎙️ Dedicatória musical (#play música @pessoa)
     if (lowerContent.startsWith('#play')) {
       const dedicatoriaHandled = await handleDedicatoriaCommands(sock, message, from);
       if (dedicatoriaHandled) return;
     }
-    
-      // 🎵 Atualizar config de dedicatória
+
+    // 🎵 Atualizar config de dedicatória
     if (lowerContent === '#atualizarmusicas') {
       if (DEBUG_MODE) console.log('🔄 Comando #atualizarmusicas detectado!');
       const reloadHandled = await handleReloadConfig(sock, message, from);
@@ -276,18 +270,24 @@ export async function handleMessages(sock, message) {
     }
 
     // ============================================
+    // ✅ #chamar, #aceitar e #vip
+    // ============================================
+    if (from.endsWith('@g.us')) {
+      const chamarHandled = await handleChamarCommand(sock, message, content, from);
+      if (chamarHandled) return;
+    }
+
+    // ============================================
     // 👑 COMANDOS RAINHA / RANKING
     // ============================================
     if (from.endsWith('@g.us')) {
 
+      // ✅ _getMeta permanece apenas para #ativos e #inativos,
+      //    que ainda precisam de admList no messageHandler.
       const _getMeta = async () => {
         const meta      = await sock.groupMetadata(from);
         const admList   = meta.participants.filter(p => p.admin).map(p => p.id);
-        const adminNums = admList.map(id => id.replace(/@.*$/, ''));
-        const membrosResolvidos = meta.participants
-          .map(m => ({ originalId: m.id, resolvedId: m.phoneNumber ?? m.id }))
-          .filter(m => m.resolvedId.endsWith('@s.whatsapp.net'));
-        return { admList, adminNums, membrosResolvidos };
+        return { admList };
       };
 
       if (lowerContent === '#rainhadamas') {
@@ -310,67 +310,13 @@ export async function handleMessages(sock, message) {
         return;
       }
 
+      // ✅ CORRIGIDO: delega TUDO ao handler — sem lógica duplicada aqui.
+      //    rankdamasHandler(client, message) é auto-suficiente:
+      //    busca metadata, verifica admin, gera ranking, cobra inativos
+      //    e fecha o dia — tudo internamente, uma única vez.
       if (lowerContent === '#rankdamas') {
         if (DEBUG_MODE) console.log('🏆 Comando #rankdamas detectado');
-
-        const { admList, adminNums, membrosResolvidos } = await _getMeta();
-        const rawUserId = resolverRemetenteReal(message) || userId;
-        const isAdmin   = admList.includes(rawUserId);
-
-        if (!isAdmin) {
-          await sock.sendMessage(from, {
-            text: '❌ Apenas administradores podem usar *#rankdamas*.',
-          });
-          return;
-        }
-
-        const inativosSnapshot = await getInativosComDias(from, membrosResolvidos, adminNums);
-        const { fantasmas: fantasmasSnapshot } = await getFantasmas(from, membrosResolvidos, adminNums);
-
-        const cobrarSet  = new Set(inativosSnapshot.map(m => m.resolvedId.split('@')[0]));
-        const listaCobrar = [...inativosSnapshot];
-        fantasmasSnapshot.forEach(f => {
-          const num = f.resolvedId.split('@')[0];
-          if (!cobrarSet.has(num)) listaCobrar.push(f);
-        });
-
-        await rankdamasHandler(sock, message, admList);
-
-        try {
-          if (listaCobrar.length) {
-            const FRASES_COBRANCA = [
-              `📣 *Se você faz parte do grupo, é importante participar.* Não adianta apenas entrar e ficar inativo.\n` +
-              `Interaja, contribua e faça parte de verdade das conversas, *porque aqui não é plateia*... quem não participa acaba ficando pra trás.\n` +
-              `Se perdeu o interesse, melhor ser direto. Se está sem tempo, avise um admin. Agora, ficar online só observando ou tentando puxar contato no privado não é a proposta do grupo.\n` +
-              `Organize um tempo, nem que seja rápido, até no banho, apareça pra dar um oi.`,
-            ];
-            const frase = FRASES_COBRANCA[Math.floor(Math.random() * FRASES_COBRANCA.length)];
-
-            let listaGrupo = '';
-            const mencoesGrupo = [];
-            listaCobrar.forEach((m, i) => {
-              listaGrupo += `${i + 1}. @${m.resolvedId.split('@')[0]}\n`;
-              mencoesGrupo.push(m.originalId);
-            });
-
-            await sock.sendMessage(from, {
-              text:
-                `🚨⚠️ *ALERTA DE PARTICIPAÇÃO!*\n` +
-                `💡 _Interaja no grupo para não ser removido!_ 👑\n` +
-                `─────────────────────────\n` +
-                `${frase}\n\n` +
-                `👇 *Membros que ainda não interagiram hoje:*\n\n` +
-                listaGrupo.trim() +
-                `\n─────────────────────────\n` +
-                `💡 _Interaja no grupo para não ser removido!_ 👑`,
-              mentions: mencoesGrupo,
-            });
-          }
-        } catch (err) {
-          console.error('❌ [cobrança inativos] Erro:', err.message);
-        }
-
-        await fecharDia(from, membrosResolvidos, adminNums);
+        await rankdamasHandler(sock, message);
         return;
       }
     }

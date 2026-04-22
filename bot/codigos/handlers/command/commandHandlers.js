@@ -3,7 +3,11 @@ import { handleSignos } from '../../moderation/signosHandler.js';
 import { handleBlacklistCommands } from '../../../codigos/moderation/blacklist/blacklistHandler.js';
 import { listarSignos, handleHoroscopoCommand } from '../../features/horoscopoHandler.js';
 import { scanAndRemoveBlacklisted } from '../../../codigos/moderation/blacklist/blacklistFunctions.js';
+import { chamarHandler, aceitarHandler } from './chamarHandler.js';
 
+/**
+ * Função para deletar mensagem com múltiplas tentativas (IGUAL AO #BAN)
+ */
 const deleteCommandMessage = async (sock, groupId, messageKey) => {
     const delays = [0, 100, 500, 1000, 2000, 5000];
     
@@ -46,21 +50,20 @@ export async function handleSignosCommands(sock, message, content, from) {
     return false;
 }
 
-// 🚫 BLACKLIST
+// 🚫 BLACKLIST - CORRIGIDO
 export async function handleBlacklistGroup(sock, from, userId, content, message) {
-    // ✅ Ignora #ban — processado pelo banHandler
-    if (content?.toLowerCase().trim().startsWith('#ban')) return false;
-
+    // Passa a mensagem completa (message) ao invés de pool
     return await handleBlacklistCommands(sock, from, userId, content, message);
 }
 
-// 🔍 VARREDURA
+// 🔍 VARREDURA - COM DELEÇÃO DE COMANDO
 export async function handleVarreduraCommand(sock, message, content, from, userId) {
     if (content.toLowerCase().trim() !== '#varredura' || !from.endsWith('@g.us')) {
         return false;
     }
 
     try {
+        // DELETA O COMANDO IMEDIATAMENTE
         await deleteCommandMessage(sock, from, message.key);
         
         const groupMetadata = await sock.groupMetadata(from);
@@ -103,5 +106,20 @@ export async function handleHoroscopoLegacy(sock, message, content, from) {
         return true;
     }
     
+    return false;
+}
+
+// 💌 CHAMAR / ACEITAR
+export async function handleChamarCommand(sock, message, content, from) {
+    const lower = content.toLowerCase().trim();
+
+    if (lower.startsWith('#chamar')) {
+        return await chamarHandler(sock, message, from);
+    }
+
+    if (lower === '#aceitar') {
+        return await aceitarHandler(sock, message, from);
+    }
+
     return false;
 }

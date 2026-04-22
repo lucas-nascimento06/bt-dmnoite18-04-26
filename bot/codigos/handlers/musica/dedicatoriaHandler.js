@@ -64,9 +64,21 @@ function fraseAleatoria(de, para, musica, artista) {
         .replace(/{artista}/g, artista);
 }
 
+// ── MENSAGENS SIMPLES (mensagens.*) ─────────────────────────────────────────
 function getMensagem(chave, variaveis = {}) {
     garantirConfig();
     let texto = config.mensagens[chave] || '';
+    for (const [k, v] of Object.entries(variaveis)) {
+        texto = texto.replace(new RegExp(`{${k}}`, 'g'), v);
+    }
+    return texto;
+}
+
+// ── POSTERS (posters.*) ──────────────────────────────────────────────────────
+// Usa os textos ricos de config.posters para as captions das imagens
+function getPosterCaption(chave, variaveis = {}) {
+    garantirConfig();
+    let texto = config.posters[chave] || '';
     for (const [k, v] of Object.entries(variaveis)) {
         texto = texto.replace(new RegExp(`{${k}}`, 'g'), v);
     }
@@ -87,14 +99,12 @@ async function gerarThumbnail(buffer, size = 256) {
 // ✅ RESOLVER SENDER REAL (evita @lid e JID de grupo)
 function resolverSenderId(message) {
     const key = message.key;
-    // Prefere participantAlt (número real @s.whatsapp.net)
     if (key.participantAlt && key.participantAlt.endsWith('@s.whatsapp.net')) {
         return key.participantAlt;
     }
     if (key.participant && key.participant.endsWith('@s.whatsapp.net')) {
         return key.participant;
     }
-    // Fallback
     return key.participant || key.remoteJid;
 }
 
@@ -109,13 +119,11 @@ function parsearComando(content, message) {
     const mentionedJids =
         message.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
 
-    // Captura nome de exibição ANTES de limpar
     const atMatch = semPrefixo.match(/@(\S+)/);
     const nomeExibicao = atMatch
         ? atMatch[1].replace(/\d+/g, '').trim() || null
         : null;
 
-    // Remove TODAS as menções do termo de busca
     const termoLimpo = semPrefixo
         .replace(/@\d+/g, '')
         .replace(/@\w+/g, '')
@@ -194,7 +202,6 @@ async function baixarThumbnail(url) {
 async function processarDedicatoria(sock, from, termo, senderId, mentionedJids, nomeExibicao, originalMessage) {
     const caminhoTemp = path.join('./downloads', `temp_dedic_${Date.now()}.mp3`);
 
-    // ✅ Número limpo para exibição (sem @lid ou JID de grupo)
     const numeroRemetente = senderId.split('@')[0];
     const nomeQuemPediu = `@${numeroRemetente}`;
 
@@ -212,8 +219,15 @@ async function processarDedicatoria(sock, from, termo, senderId, mentionedJids, 
 
     try {
         // ── 1. POSTER INICIAL ────────────────────────────────────────────────
+        // Caption usa config.posters.aviso_inicial (texto rico com emojis/formatação)
+        // Fallback para config.mensagens.aviso_inicial se o poster caption estiver vazio
         const posterBuffer = await baixarImagemPoster();
-        const captionAviso = getMensagem('aviso_inicial', {
+
+        const captionAviso = getPosterCaption('aviso_inicial', {
+            destinatario: nomeDestinatario,
+            remetente: nomeQuemPediu,
+            termo
+        }) || getMensagem('aviso_inicial', {
             destinatario: nomeDestinatario,
             remetente: nomeQuemPediu,
             termo
@@ -256,7 +270,15 @@ async function processarDedicatoria(sock, from, termo, senderId, mentionedJids, 
         let thumbnailBuffer = null;
         if (dados.thumbnailUrl) thumbnailBuffer = await baixarThumbnail(dados.thumbnailUrl);
 
-        const captionInfo = getMensagem('musica_encontrada', {
+        // Caption usa config.posters.musica_encontrada (texto rico com variáveis)
+        // Fallback para config.mensagens.musica_encontrada
+        const captionInfo = getPosterCaption('musica_encontrada', {
+            titulo: dados.titulo,
+            artista: dados.autor,
+            duracao: formatarDuracao(dados.duracao),
+            remetente: nomeQuemPediu,
+            destinatario: nomeDestinatario
+        }) || getMensagem('musica_encontrada', {
             titulo: dados.titulo,
             artista: dados.autor,
             duracao: formatarDuracao(dados.duracao),
@@ -403,14 +425,12 @@ export async function handleDedicatoriaCommands(sock, message, from) {
         message.message?.conversation ||
         message.message?.extendedTextMessage?.text || '';
 
-    // Só responde a #play
     if (!/^#play\s/i.test(content)) return false;
 
     const temMencaoNoTexto = /@\S+/.test(content);
     const temMencaoResolvida =
         (message.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length || 0) > 0;
 
-    // Sem menção = música normal, deixa musicaHandler tratar
     if (!temMencaoNoTexto && !temMencaoResolvida) return false;
 
     const parsed = parsearComando(content, message);
@@ -418,7 +438,6 @@ export async function handleDedicatoriaCommands(sock, message, from) {
 
     const { termo, mentionedJids, nomeExibicao } = parsed;
 
-    // ✅ Usa resolverSenderId para pegar o número real (@s.whatsapp.net)
     const senderId = resolverSenderId(message);
     console.log(`🎙️ [DEDICATÓRIA] senderId resolvido: ${senderId}`);
 

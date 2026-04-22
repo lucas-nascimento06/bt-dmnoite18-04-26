@@ -18,6 +18,7 @@ import { configurarDespedida } from '../../features/despedidaMembro.js';
 import { handlePoemas, handleAtualizarPoemas } from '../command/poema.js';
 import { handleReloadConfig, handleDedicatoriaCommands } from '../musica/dedicatoriaHandler.js'
 import { handleBanMessage } from '../../moderation/banHandler.js'; 
+import { handleNotCommand } from '../command/notCommandHandler.js';
 
 
 
@@ -266,6 +267,12 @@ export async function handleMessages(sock, message) {
     if (from.endsWith('@g.us') && content?.includes('#ban')) {
       await handleBanMessage(sock, message);
       return;
+    }
+
+    // ✅ 🚫 #not — MODERAÇÃO
+    if (from.endsWith('@g.us')) {
+      const notHandled = await handleNotCommand(sock, message);
+      if (notHandled) return;
     }
 
     // ============================================

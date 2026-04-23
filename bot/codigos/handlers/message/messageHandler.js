@@ -20,6 +20,7 @@ import { handleReloadConfig, handleDedicatoriaCommands } from '../musica/dedicat
 import { handleBanMessage } from '../../moderation/banHandler.js'; 
 import { handleNotCommand } from '../command/notCommandHandler.js';
 import { handleChamarCommand } from '../command/chamarHandler.js';
+import { perfilHandler } from "../command/perfilHandler.js";
 
 // ✅ IMPORTS — rainha / ranking
 import { ativosHandler, inativosHandler } from '../command/ativosHandler.js';
@@ -320,7 +321,21 @@ export async function handleMessages(sock, message) {
         return;
       }
     }
+    
+    // ============================================
+    // 🎭 PERFIL — gera perfil aleatório do usuário
+    // ============================================
+    if (lowerContent.startsWith('#perfil')) {
+      await perfilHandler(sock, message);
+      return;
+    }
 
+    // 🔄 Atualiza cache dos templates de perfil
+    if (lowerContent === '#atualizarperfil') {
+      await atualizarPerfilHandler(sock, message);
+      return;
+    }
+  
     // 💌 CONFISSÕES (grupo)
     if (from.endsWith('@g.us')) {
       if (lowerContent === '#avisarconfissoes') {

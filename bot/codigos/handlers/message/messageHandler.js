@@ -21,6 +21,13 @@ import { handleBanMessage } from '../../moderation/banHandler.js';
 import { handleNotCommand } from '../command/notCommandHandler.js';
 import { handleChamarCommand } from '../command/chamarHandler.js';
 import { perfilHandler } from "../command/perfilHandler.js";
+import {
+    handleBomDia,
+    handleBoaTarde,
+    handleBoaNoite,
+    handleAtualizarSaudacoes
+} from "../command/saudacoesHandler.js";
+
 
 // ✅ IMPORTS — rainha / ranking
 import { ativosHandler, inativosHandler } from '../command/ativosHandler.js';
@@ -333,6 +340,33 @@ export async function handleMessages(sock, message) {
     // 🔄 Atualiza cache dos templates de perfil
     if (lowerContent === '#atualizarperfil') {
       await atualizarPerfilHandler(sock, message);
+      return;
+    }
+
+    // ============================================
+    // ☀️ SAUDAÇÕES — bom dia / boa tarde / boa noite
+    // ============================================
+    if (lowerContent === '#bomdia' || lowerContent === '#bd') {
+      if (DEBUG_MODE) console.log('☀️ Comando #bomdia detectado!');
+      await handleBomDia(sock, message, [], from);
+      return;
+    }
+ 
+    if (lowerContent === '#boatarde' || lowerContent === '#bt') {
+      if (DEBUG_MODE) console.log('🌇 Comando #boatarde detectado!');
+      await handleBoaTarde(sock, message, [], from);
+      return;
+    }
+ 
+    if (lowerContent === '#boanoite' || lowerContent === '#bn') {
+      if (DEBUG_MODE) console.log('🌃 Comando #boanoite detectado!');
+      await handleBoaNoite(sock, message, [], from);
+      return;
+    }
+ 
+    if (lowerContent === '#atualizarsaudacoes') {
+      if (DEBUG_MODE) console.log('🔄 Comando #atualizarsaudacoes detectado!');
+      await handleAtualizarSaudacoes(sock, message, [], from);
       return;
     }
   

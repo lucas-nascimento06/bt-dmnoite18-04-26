@@ -1,13 +1,19 @@
 // ============================================================
-//  rankdamasHandler.js (VERSÃO CORRIGIDA — SEM DUPLICAÇÃO)
+//  rankdamasHandler.js (VERSÃO COM IMAGEM NO ALERTA)
 //  ✅ Handler auto-suficiente: busca metadata internamente
 //  ✅ Parâmetros: apenas (client, message) — sem admList externo
+//  ✅ Alerta de participação agora enviado com imagem (igual rainhaHandler)
 // ============================================================
 
+import axios from 'axios';
+import Jimp from 'jimp';
 import { getAtivos, getInativosComDias, getFantasmas, fecharDia } from '../../utils/rainhaModel.js';
 
 const GRUPO_PRINCIPAL = '120363404775670913@g.us';
 const GRUPO_ADMINS    = '120363426062597341@g.us';
+
+// URL da imagem do poster de alerta anti-fantasmas
+const FOTO_ALERTA_URL = 'https://i.ibb.co/fYV2rq3G/tropa-antifantasmas.png';
 
 // ============================================
 // 🔧 UTIL
@@ -19,6 +25,51 @@ function digitos(id = '') {
 function labelDias(dias) {
   if (dias === 1) return '1 dia sem falar';
   return `${dias} dias sem falar`;
+}
+
+// ============================================
+// 🖼️ HELPERS DE IMAGEM (igual rainhaHandler)
+// ============================================
+async function baixarImagem(url) {
+  try {
+    const res = await axios.get(url, { responseType: 'arraybuffer' });
+    return Buffer.from(res.data, 'binary');
+  } catch (err) {
+    console.error('❌ Erro ao baixar imagem do alerta:', err.message);
+    return null;
+  }
+}
+
+async function gerarThumbnail(buffer, size = 256) {
+  try {
+    const image = await Jimp.read(buffer);
+    image.scaleToFit(size, size);
+    return await image.getBufferAsync(Jimp.MIME_JPEG);
+  } catch (err) {
+    console.error('Erro ao gerar thumbnail:', err);
+    return null;
+  }
+}
+
+async function enviarComImagem(client, grupoId, buffer, legenda, mencoes) {
+  try {
+    const thumb = await gerarThumbnail(buffer);
+    await client.sendMessage(grupoId, {
+      image: buffer,
+      caption: legenda,
+      mentions: mencoes,
+      jpegThumbnail: thumb,
+    });
+    return true;
+  } catch {
+    try {
+      await client.sendMessage(grupoId, { image: buffer, caption: legenda, mentions: mencoes });
+      return true;
+    } catch (err2) {
+      console.error('❌ Erro no fallback de imagem do alerta:', err2.message);
+      return false;
+    }
+  }
 }
 
 // ============================================
@@ -232,36 +283,63 @@ export async function rankdamasHandler(client, message) {
       if (!cobrarSet.has(num)) listaCobrar.push(f);
     });
 
-    if (listaCobrar.length) {
-      const FRASES_COBRANCA = [
-        `📣 *Se você faz parte do grupo, é importante participar.* Não adianta apenas entrar e ficar inativo.\n` +
-        `Interaja, contribua e faça parte de verdade das conversas, *porque aqui não é plateia*... quem não participa acaba ficando pra trás.\n` +
-        `Se perdeu o interesse, melhor ser direto. Se está sem tempo, avise um admin. Agora, ficar online só observando ou tentando puxar contato no privado não é a proposta do grupo.\n` +
-        `Organize um tempo, nem que seja rápido, até no banho, apareça pra dar um oi.`,
+      if (listaCobrar.length) {
+       const FRASES_COBRANCA = [
+          `📣 *Grupo é pra interagir.* Não é só entrar e ficar de fora.\n` +
+          `Participe das conversas, nem que seja rápido, mas apareça.\n` +
+          `Evite focar só no privado, a ideia é trocar ideia com todos.\n` +
+          `Quem não pretende participar, deve se retirar para evitar futuras remoções.`,
       ];
-      const frase = FRASES_COBRANCA[Math.floor(Math.random() * FRASES_COBRANCA.length)];
 
-      let listaGrupo   = '';
-      const mencoesGrupo = [];
+       const frase = FRASES_COBRANCA[Math.floor(Math.random() * FRASES_COBRANCA.length)];
+           let listaGrupo   = '';
+           const mencoesGrupo = [];
 
       listaCobrar.forEach((m, i) => {
-        listaGrupo += `${i + 1}. @${m.resolvedId.split('@')[0]}\n`;
-        mencoesGrupo.push(m.originalId);
+        // Usa sempre o número limpo do originalId para garantir que o @texto
+        // bata exatamente com o JID no array mentions — isso é o que o WhatsApp
+        // exige para colorir a menção de azul.
+        const numParaTexto = digitos(m.originalId);
+        const jidMencao   = m.originalId.includes('@') ? m.originalId : `${m.originalId}@s.whatsapp.net`;
+
+        listaGrupo += `${i + 1}. @${numParaTexto}\n`;
+        mencoesGrupo.push(jidMencao);
       });
 
-      await client.sendMessage(grupoId, {
-        text:
-          `🚨⚠️ *ALERTA DE PARTICIPAÇÃO!*\n` +
-          `💡 _Interaja no grupo para não ser removido!_ 👑\n` +
-          `─────────────────────────\n` +
-          `${frase}\n\n` +
-          `👇 *Membros que ainda não interagiram hoje:*\n\n` +
-          listaGrupo.trim() +
-          `\n─────────────────────────\n` +
-          `💡 _Interaja no grupo para não ser removido!_ 👑`,
-        mentions: mencoesGrupo,
-      });
-      console.log(`✅ [rankdamasHandler] Alerta de cobrança enviado para ${listaCobrar.length} pessoas`);
+      const legendaAlerta =
+        `🚨⚠️ *🚨 Tropa Anti-Fantasmas*\n` +
+        `🚨⚠️ *ALERTA DE PARTICIPAÇÃO!*\n` +
+        `💡 _Interaja no grupo para não ser removido!_ 👑\n` +
+        `𝝑𝝔 ⏔⏔⏔⏔⏔⏔⏔🕵️‍♂️⏔⏔⏔⏔⏔⏔⏔ 𝝑𝝔\n` +
+        `${frase}\n\n` +
+        `👇 *Membros que ainda não interagiram hoje:*\n\n` +
+        listaGrupo.trim() +
+        `\n𝝑𝝔 ⏔⏔⏔⏔⏔⏔⏔🕵️‍♀️⏔⏔⏔⏔⏔⏔⏔ 𝝑𝝔\n` +
+        `💡 _Interaja no grupo para não ser removido!_ 👑`;
+
+      // ─── Tenta enviar com imagem (igual rainhaHandler) ───
+      const fotoBuffer = await baixarImagem(FOTO_ALERTA_URL);
+
+      if (fotoBuffer) {
+        const enviado = await enviarComImagem(client, grupoId, fotoBuffer, legendaAlerta, mencoesGrupo);
+        if (enviado) {
+          console.log(`✅ [rankdamasHandler] Alerta de cobrança com imagem enviado para ${listaCobrar.length} pessoas`);
+        } else {
+          // Fallback: só texto
+          await client.sendMessage(grupoId, {
+            text: legendaAlerta,
+            mentions: mencoesGrupo,
+          });
+          console.log(`✅ [rankdamasHandler] Alerta de cobrança (fallback texto) enviado para ${listaCobrar.length} pessoas`);
+        }
+      } else {
+        // Sem imagem: envia só texto
+        await client.sendMessage(grupoId, {
+          text: legendaAlerta,
+          mentions: mencoesGrupo,
+        });
+        console.log(`✅ [rankdamasHandler] Alerta de cobrança (sem imagem) enviado para ${listaCobrar.length} pessoas`);
+      }
     }
 
     // ─── FECHAR DIA (apenas uma vez, aqui) ───

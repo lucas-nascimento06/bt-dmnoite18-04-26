@@ -1,7 +1,7 @@
-// chamarHandler.js
 import pool from '../../../../db.js';
 import axios from 'axios';
 import Jimp from 'jimp';
+import { generateProfilePicture } from '@whiskeysockets/baileys'; 
 
 const query = (text, params) => pool.query(text, params);
 
@@ -144,12 +144,24 @@ async function resolverJidViaGrupo(sock, jidMencionado, grupoJid) {
 // ============================================
 async function definirFotoGrupo(sock, grupoJid, imageUrl) {
     try {
+        console.log(`🖼️ [Foto] Baixando imagem de: ${imageUrl}`);
         const buffer = await baixarImagem(imageUrl);
-        if (!buffer) return;
-        await sock.updateProfilePicture(grupoJid, buffer);
-        console.log(`🖼️ [Foto] Capa do grupo ${grupoJid} atualizada!`);
+
+        if (!buffer) {
+            console.warn('⚠️ [Foto] Não foi possível baixar a imagem');
+            return false;
+        }
+
+        const { img } = await generateProfilePicture(buffer);
+
+        await sock.updateProfilePicture(grupoJid, img);
+
+        console.log(`✅ [Foto] Foto do grupo ${grupoJid} atualizada!`);
+        return true;
+
     } catch (e) {
-        console.warn('⚠️ [Foto] Não foi possível definir foto do grupo:', e.message);
+        console.error('❌ [Foto] Erro:', e.message);
+        return false;
     }
 }
 
@@ -508,10 +520,10 @@ export async function vipHandler(sock, message, grupo) {
         `🤫 Recusas são discretas — ninguém no grupo fica sabendo\n\n` +
         `✔️ Mais respeito e menos constrangimento`;
 
-    await sock.sendMessage(grupo, {
-        text: poster,
-        mentions: mentions,
-    });
+    // ✅ ALTERAÇÃO: era sock.sendMessage com { text, mentions }
+    // agora usa enviarComImagem para mandar o poster COM a foto da Sala VIP
+    // se a imagem falhar, ela cai no fallback e manda só o texto normalmente
+    await enviarComImagem(sock, grupo, poster, mentions);
 
     console.log(`📢 [#vip] Poster enviado por ${digitosRemetente} com ${mentions.length} menções.`);
     return true;

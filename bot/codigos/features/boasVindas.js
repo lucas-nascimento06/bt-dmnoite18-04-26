@@ -1,4 +1,4 @@
-import Jimp from "jimp";
+import { Jimp } from "jimp";
 import axios from "axios";
 import fs from "fs";
 import path from "path";
@@ -255,8 +255,8 @@ async function enviarAudioRespondendoMensagem(socket, groupId, audioUrl, caption
 async function gerarThumbnail(buffer, size = 256) {
   try {
     const image = await Jimp.read(buffer);
-    await image.resize(size, size);
-    return await image.getBufferAsync(Jimp.MIME_PNG);
+    await image.resize({ w: size, h: size });
+    return await image.getBuffer("image/png");
   } catch (err) {
     console.error("Erro ao gerar thumbnail:", err);
     return null;

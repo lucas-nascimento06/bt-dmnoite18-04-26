@@ -1,5 +1,5 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
-import Jimp from 'jimp';
+import { Jimp } from 'jimp';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
@@ -284,7 +284,7 @@ async function composeOnTransparentCanvas(imageBuffer, size = 512, radius = 60) 
     const scale = Math.max(size / origW, size / origH);
     const newW  = Math.round(origW * scale);
     const newH  = Math.round(origH * scale);
-    image.resize(newW, newH);
+    image.resize({ w: newW, h: newH });
 
     const cropX = Math.floor((newW - size) / 2);
     const cropY = Math.floor((newH - size) / 2);
@@ -447,7 +447,7 @@ async function createSimpleSticker(imageBuffer) {
         image = await applyRoundedCorners(image, 60);
         console.log('✅ Bordas arredondadas aplicadas');
 
-        const pngBuffer = await image.getBufferAsync(Jimp.MIME_PNG);
+        const pngBuffer = await image.getBuffer("image/png");
         console.log(`✅ PNG gerado: ${pngBuffer.length} bytes`);
 
         const webpBuffer = await convertToWebP(pngBuffer);
@@ -501,7 +501,7 @@ async function createStickerWithText(imageBuffer, texto) {
         }
         image.print(fontWhite, textX, textY, textoUpper);
 
-        const pngBuffer = await image.getBufferAsync(Jimp.MIME_PNG);
+        const pngBuffer = await image.getBuffer("image/png");
         console.log(`✅ PNG com texto gerado: ${pngBuffer.length} bytes`);
 
         const webpBuffer = await convertToWebP(pngBuffer);

@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
-import Jimp from 'jimp';
+import { Jimp } from 'jimp';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -78,19 +78,19 @@ class ReplyTagHandler {
             
             if (image.getWidth() > maxWidth || image.getHeight() > maxHeight) {
                 console.log(`🔧 Redimensionando...`);
-                image.scaleToFit(maxWidth, maxHeight);
+                image.scaleToFit({ w: maxWidth, h: maxHeight });
                 console.log(`✅ Nova dimensão: ${image.getWidth()}x${image.getHeight()}`);
             }
 
             const processedBuffer = await image
                 .quality(90)
-                .getBufferAsync(Jimp.MIME_JPEG);
+                .getBuffer("image/jpeg");
 
             console.log(`✅ Imagem processada: ${processedBuffer.length} bytes`);
             
             if (processedBuffer.length > 5 * 1024 * 1024) {
                 console.log(`⚠️ Imagem muito grande, reduzindo qualidade...`);
-                return await image.quality(75).getBufferAsync(Jimp.MIME_JPEG);
+                return await image.quality(75).getBuffer("image/jpeg");
             }
             
             return processedBuffer;
@@ -104,8 +104,8 @@ class ReplyTagHandler {
     async gerarThumbnail(buffer, size = 256) {
         try {
             const image = await Jimp.read(buffer);
-            image.scaleToFit(size, size);
-            return await image.getBufferAsync(Jimp.MIME_JPEG);
+            image.scaleToFit({ w: size, h: size });
+            return await image.getBuffer("image/jpeg");
         } catch (err) {
             console.error('Erro ao gerar thumbnail:', err);
             return null;

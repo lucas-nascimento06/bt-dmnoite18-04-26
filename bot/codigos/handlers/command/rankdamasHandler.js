@@ -6,7 +6,7 @@
 // ============================================================
 
 import axios from 'axios';
-import Jimp from 'jimp';
+import { Jimp } from 'jimp';
 import { getAtivos, getInativosComDias, getFantasmas, fecharDia } from '../../utils/rainhaModel.js';
 
 const GRUPO_PRINCIPAL = '120363404775670913@g.us';
@@ -43,8 +43,8 @@ async function baixarImagem(url) {
 async function gerarThumbnail(buffer, size = 256) {
   try {
     const image = await Jimp.read(buffer);
-    image.scaleToFit(size, size);
-    return await image.getBufferAsync(Jimp.MIME_JPEG);
+    image.scaleToFit({ w: size, h: size });
+    return await image.getBuffer("image/jpeg");
   } catch (err) {
     console.error('Erro ao gerar thumbnail:', err);
     return null;

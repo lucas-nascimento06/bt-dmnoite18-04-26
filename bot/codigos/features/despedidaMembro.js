@@ -1,6 +1,6 @@
 // despedidaMembro.js -> E chamada no bot.js
 
-import Jimp from 'jimp';
+import { Jimp } from 'jimp';
 import axios from 'axios';
 
 /**
@@ -20,8 +20,8 @@ async function gerarThumbnail(input, size = 256) {
         }
 
         const image = await Jimp.read(buffer);
-        image.resize(size, size);
-        return await image.getBufferAsync(Jimp.MIME_PNG);
+        image.resize({ w: size, h: size });
+        return await image.getBuffer("image/png");
     } catch (err) {
         console.error('Erro ao gerar thumbnail:', err);
         return null;

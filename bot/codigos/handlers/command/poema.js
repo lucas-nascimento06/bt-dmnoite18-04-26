@@ -6,7 +6,7 @@
 
 import fetch from 'node-fetch';
 import axios from 'axios';
-import Jimp from 'jimp';
+import { Jimp } from 'jimp';
 
 const URL_POEMAS = 'https://raw.githubusercontent.com/lucas-nascimento06/poemas-damas/refs/heads/main/poemas.json';
 const FOTO_URL   = 'https://i.ibb.co/0Vqnrn4Z/58629ea7-a141-4f18-9f00-99c177f8fa53-1.png';
@@ -66,8 +66,8 @@ async function baixarImagemPoema() {
 async function gerarThumbnail(buffer, size = 256) {
     try {
         const image = await Jimp.read(buffer);
-        image.scaleToFit(size, size);
-        return await image.getBufferAsync(Jimp.MIME_JPEG);
+        image.scaleToFit({ w: size, h: size });
+        return await image.getBuffer("image/jpeg");
     } catch (err) {
         console.error('Erro ao gerar thumbnail:', err);
         return null;

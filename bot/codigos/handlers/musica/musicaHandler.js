@@ -2,7 +2,7 @@
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
-import Jimp from 'jimp';
+import { Jimp } from 'jimp';
 import { baixarMusicaBuffer, obterDadosMusica, buscarUrlPorNome } from './download.util.js';
 
 let processandoMusica = false;
@@ -18,8 +18,8 @@ function limparNomeArquivo(nome) {
 async function gerarThumbnail(buffer, size = 256) {
     try {
         const image = await Jimp.read(buffer);
-        image.scaleToFit(size, size);
-        return await image.getBufferAsync(Jimp.MIME_JPEG);
+        image.scaleToFit({ w: size, h: size });
+        return await image.getBuffer("image/jpeg");
     } catch (err) {
         console.error('Erro ao gerar thumbnail:', err);
         return null;
@@ -92,15 +92,15 @@ async function baixarThumbnailComJimp(url) {
             console.log(`📐 Dimensões originais: ${image.bitmap.width}x${image.bitmap.height}`);
 
             if (image.bitmap.width > 1280 || image.bitmap.height > 720) {
-                image.scaleToFit(1280, 720);
+                image.scaleToFit({ w: 1280, h: 720 });
             }
 
-            const processedBuffer = await image.getBufferAsync(Jimp.MIME_JPEG);
+            const processedBuffer = await image.getBuffer("image/jpeg");
             console.log(`✅ Imagem processada: ${processedBuffer.length} bytes`);
 
             if (processedBuffer.length > 5 * 1024 * 1024) {
-                image.scaleToFit(640, 360);
-                return await image.getBufferAsync(Jimp.MIME_JPEG);
+                image.scaleToFit({ w: 640, h: 360 });
+                return await image.getBuffer("image/jpeg");
             }
 
             return processedBuffer;

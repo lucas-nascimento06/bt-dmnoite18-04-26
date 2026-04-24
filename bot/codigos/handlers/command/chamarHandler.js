@@ -1,7 +1,7 @@
 import pool from '../../../../db.js';
 import axios from 'axios';
 import { Jimp } from 'jimp';
-import { generateProfilePicture } from '@whiskeysockets/baileys'; 
+import { generateProfilePicture } from '@whiskeysockets/baileys';
 
 const query = (text, params) => pool.query(text, params);
 
@@ -65,7 +65,6 @@ async function enviarComImagem(sock, grupoId, caption, mentions) {
         }
     }
 
-    // Fallback: só texto
     return await sock.sendMessage(grupoId, {
         text: caption,
         mentions,
@@ -78,14 +77,14 @@ async function enviarComImagem(sock, grupoId, caption, mentions) {
 export async function criarTabelaConvites() {
     await query(`
         CREATE TABLE IF NOT EXISTS convites_pendentes (
-            id             SERIAL PRIMARY KEY,
-            convidado      TEXT        NOT NULL,
-            remetente      TEXT        NOT NULL,
-            nome_remetente TEXT        NOT NULL,
-            grupo          TEXT        NOT NULL,
-            message_key    TEXT        NOT NULL,
-            expires_at     TIMESTAMPTZ NOT NULL,
-            criado_em      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            id                  SERIAL PRIMARY KEY,
+            convidado           TEXT        NOT NULL,
+            remetente           TEXT        NOT NULL,
+            nome_remetente      TEXT        NOT NULL,
+            grupo               TEXT        NOT NULL,
+            expires_at          TIMESTAMPTZ NOT NULL,
+            etapa               TEXT        NOT NULL DEFAULT 'aguardando_remetente',
+            criado_em           TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
     `);
 
@@ -113,7 +112,6 @@ async function resolverJidViaGrupo(sock, jidMencionado, grupoJid) {
 
             if (jid.includes('@lid')) {
                 const phone = encontrado.phoneNumber || encontrado.phone;
-
                 if (phone) {
                     const jidReal = phone.includes('@')
                         ? phone
@@ -121,7 +119,6 @@ async function resolverJidViaGrupo(sock, jidMencionado, grupoJid) {
                     console.log(`🔄 [resolverJid] @lid convertido → ${jidReal}`);
                     return jidReal;
                 }
-
                 const jidForcado = garantirJidCompleto(jid);
                 console.warn(`⚠️ [resolverJid] @lid sem phoneNumber, forçando: ${jidForcado}`);
                 return jidForcado;
@@ -130,11 +127,11 @@ async function resolverJidViaGrupo(sock, jidMencionado, grupoJid) {
             return jid;
         }
 
-        console.warn('⚠️ [chamar] Participante não encontrado nos metadados:', jidMencionado);
+        console.warn('⚠️ [resolverJid] Participante não encontrado nos metadados:', jidMencionado);
         return garantirJidCompleto(jidMencionado);
 
     } catch (e) {
-        console.error('❌ [chamar] Erro ao buscar metadados do grupo:', e.message);
+        console.error('❌ [resolverJid] Erro ao buscar metadados do grupo:', e.message);
         return garantirJidCompleto(jidMencionado);
     }
 }
@@ -152,21 +149,32 @@ async function definirFotoGrupo(sock, grupoJid, imageUrl) {
             return false;
         }
 
-        const { img } = await generateProfilePicture(buffer);
+        let img;
+        try {
+            const resultado = await generateProfilePicture(buffer);
+            img = resultado.img;
+        } catch (e) {
+            console.warn('⚠️ [Foto] generateProfilePicture falhou, usando buffer direto:', e.message);
+            img = buffer;
+        }
 
-        await sock.updateProfilePicture(grupoJid, img);
+        try {
+            await sock.updateProfilePicture(grupoJid, img);
+            console.log(`✅ [Foto] Foto do grupo ${grupoJid} atualizada!`);
+        } catch (e) {
+            console.warn('⚠️ [Foto] updateProfilePicture falhou (ignorando):', e.message);
+        }
 
-        console.log(`✅ [Foto] Foto do grupo ${grupoJid} atualizada!`);
         return true;
 
     } catch (e) {
-        console.error('❌ [Foto] Erro:', e.message);
+        console.error('❌ [Foto] Erro geral (ignorando para não travar):', e.message);
         return false;
     }
 }
 
 // ============================================
-// 🏗️ CRIA GRUPO VIP E SAI IMEDIATAMENTE
+// 🏗️ CRIA GRUPO VIP E SAI APÓS 60 SEGUNDOS
 // ============================================
 async function criarGrupoVip(sock, aceitante, remetente) {
     try {
@@ -201,7 +209,7 @@ async function criarGrupoVip(sock, aceitante, remetente) {
             console.warn('⚠️ [Sala VIP] Erro ao enviar mensagem de boas-vindas:', e.message);
         }
 
-        // Bot sai após 40 segundos
+        // Bot sai após 60 segundos
         setTimeout(async () => {
             try {
                 await sock.groupLeave(salaVipId);
@@ -209,7 +217,7 @@ async function criarGrupoVip(sock, aceitante, remetente) {
             } catch (e) {
                 console.warn('⚠️ [Sala VIP] Erro ao sair do grupo:', e.message);
             }
-        }, 40 * 1000);
+        }, 60 * 1000);
 
         return salaVipId;
 
@@ -221,6 +229,7 @@ async function criarGrupoVip(sock, aceitante, remetente) {
 
 // ============================================
 // 📩 HANDLER: #chamar
+// Etapa 1: Lucas chama Mary → bot pede #salvei de Lucas
 // ============================================
 export async function chamarHandler(sock, message, grupo) {
     await sock.sendMessage(grupo, { delete: message.key });
@@ -258,155 +267,199 @@ export async function chamarHandler(sock, message, grupo) {
 
     console.log(`🔍 [DEBUG] JIDs → convidado: ${convidado} | remetente: ${remetente}`);
 
-    // Remove convite anterior do mesmo convidado (por JID exato ou dígitos)
+    // Remove convites anteriores envolvendo o mesmo remetente ou convidado
     const digitosConvidado = convidado.replace(/\D/g, '');
+    const digitosRemetente = remetente.replace(/\D/g, '');
+
     await query(
         `DELETE FROM convites_pendentes
-         WHERE convidado = $1 OR REGEXP_REPLACE(convidado, '[^0-9]', '', 'g') = $2`,
-        [convidado, digitosConvidado]
+         WHERE REGEXP_REPLACE(convidado, '[^0-9]', '', 'g') = $1
+            OR REGEXP_REPLACE(remetente, '[^0-9]', '', 'g') = $2`,
+        [digitosConvidado, digitosRemetente]
     );
 
     const botNumero = sock.user.id.split(':')[0];
 
-    const caption =
-        `💌 𝗖𝗢𝗡𝗩𝗜𝗧𝗘 𝗣𝗔𝗥𝗔 𝗦𝗔𝗟𝗔 𝗩𝗜𝗣 💌\n\n` +
-        `@${convidado.split('@')[0]}, você foi convidado por @${remetente.split('@')[0]} para um bate-papo reservado na 𝐒𝐀𝐋𝐀 𝐕𝐈𝐏.\n\n` +
-        `📱 Salve o número do bot *${botNumero}* no seu celular ou WhatsApp e digite *#aceitar* ou *#recusar*.\n\n` +
-        `${RODAPE}`;
-
-    const msgGrupo = await enviarComImagem(sock, grupo, caption, [convidado, remetente]);
-
+    // Salva convite no banco na etapa inicial: aguardando remetente (#salvei)
     await query(
-        `INSERT INTO convites_pendentes (convidado, remetente, nome_remetente, grupo, message_key, expires_at)
-         VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '5 minutes')`,
-        [convidado, remetente, nomeRemetente, grupo, JSON.stringify({ ...msgGrupo.key, remoteJid: grupo })]
+        `INSERT INTO convites_pendentes
+            (convidado, remetente, nome_remetente, grupo, expires_at, etapa)
+         VALUES ($1, $2, $3, $4, NOW() + INTERVAL '50 seconds', 'aguardando_remetente')`,
+        [convidado, remetente, nomeRemetente, grupo]
     );
 
-    console.log(`💌 [#chamar] ${nomeRemetente} → ${convidado.split('@')[0]}`);
+    // Pede #salvei do REMETENTE
+    const caption =
+        `💌 *CONVITE SALA VIP* 💌\n\n` +
+        `@${remetente.split('@')[0]}, para continuar você precisa ter o número do bot salvo.\n\n` +
+        `📱 O número do bot é *${botNumero}*.\n` +
+        `Salve-o agora e escreva *#salvei* aqui no grupo.\n\n` +
+        `⚠️ Se não confirmar em *50 segundos*, o convite será cancelado automaticamente.\n\n` +
+        `${RODAPE}`;
 
-    // Timer de expiração do convite (5 min)
+    await enviarComImagem(sock, grupo, caption, [remetente]);
+
+    console.log(`💌 [#chamar] ${nomeRemetente} → ${convidado.split('@')[0]} | aguardando #salvei do remetente`);
+
+    // Timer de expiração (2 min)
     setTimeout(async () => {
         try {
             const check = await query(
-                `SELECT message_key FROM convites_pendentes
-                 WHERE convidado = $1 OR REGEXP_REPLACE(convidado, '[^0-9]', '', 'g') = $2`,
-                [convidado, digitosConvidado]
+                `SELECT id FROM convites_pendentes
+                 WHERE REGEXP_REPLACE(remetente, '[^0-9]', '', 'g') = $1
+                   AND REGEXP_REPLACE(convidado, '[^0-9]', '', 'g') = $2`,
+                [digitosRemetente, digitosConvidado]
             );
 
-            if (check.rowCount === 0) return; // já foi aceito ou recusado
+            if (check.rowCount === 0) return; // já foi resolvido
 
-            const key = JSON.parse(check.rows[0].message_key);
+            await query(
+                `DELETE FROM convites_pendentes
+                 WHERE REGEXP_REPLACE(remetente, '[^0-9]', '', 'g') = $1
+                   AND REGEXP_REPLACE(convidado, '[^0-9]', '', 'g') = $2`,
+                [digitosRemetente, digitosConvidado]
+            );
 
             await sock.sendMessage(grupo, {
-                text: `⌛ @${convidado.split('@')[0]}, seu convite de @${remetente.split('@')[0]} *expirou*. ❌\n\n${RODAPE}`,
-                mentions: [convidado, remetente],
-                edit: key.id,
+                text:
+                    `⌛ *CONVITE EXPIRADO* ❌\n\n` +
+                    `@${remetente.split('@')[0]}, seu convite para @${convidado.split('@')[0]} foi *cancelado automaticamente*.\n\n` +
+                    `😔 O tempo acabou antes da confirmação.\n\n` +
+                    `💡 Se ainda quiser tentar, use *#chamar @pessoa* novamente!\n\n` +
+                    `${RODAPE}`,
+                mentions: [remetente, convidado],
             });
-
-            setTimeout(async () => {
-                await query(
-                    `DELETE FROM convites_pendentes
-                     WHERE convidado = $1 OR REGEXP_REPLACE(convidado, '[^0-9]', '', 'g') = $2`,
-                    [convidado, digitosConvidado]
-                );
-            }, 5000);
 
         } catch (e) {
             console.error('❌ Erro ao expirar convite:', e.message);
         }
-    }, 5 * 60 * 1000);
+    }, 50 * 1000);
 
     return true;
 }
 
 // ============================================
-// ✅ HANDLER: #aceitar
+// 💾 HANDLER: #salvei
+// Etapa 2 (remetente): Lucas confirma → bot avisa Mary
+// Etapa 3 (convidado): Mary confirma → sala criada direto
 // ============================================
-export async function aceitarHandler(sock, message, grupo) {
+export async function salveiHandler(sock, message, grupo) {
     await sock.sendMessage(grupo, { delete: message.key });
 
-    const aceitanteRaw = message.key.participant;
+    const autorRaw = message.key.participant;
+    if (!autorRaw) return true;
 
-    if (!aceitanteRaw) {
-        await sock.sendMessage(grupo, {
-            text: `❌ Não foi possível identificar quem está aceitando.\n\n${RODAPE}`,
-        });
-        return true;
-    }
+    const autor        = garantirJidCompleto(await resolverJidViaGrupo(sock, autorRaw, grupo));
+    const digitosAutor = autor.replace(/\D/g, '');
 
-    const aceitante = garantirJidCompleto(await resolverJidViaGrupo(sock, aceitanteRaw, grupo));
-
-    console.log(`🔍 [DEBUG] aceitante → ${aceitante}`);
-
-    // Busca por JID exato OU por dígitos (evita divergência de sufixo)
-    const digitos = aceitante.replace(/\D/g, '');
-    const res = await query(
+    // ── Verifica se é o REMETENTE confirmando (etapa: aguardando_remetente) ──
+    const resRemetente = await query(
         `SELECT * FROM convites_pendentes
-         WHERE (convidado = $1 OR REGEXP_REPLACE(convidado, '[^0-9]', '', 'g') = $2)
-           AND expires_at > NOW()`,
-        [aceitante, digitos]
+         WHERE REGEXP_REPLACE(remetente, '[^0-9]', '', 'g') = $1
+           AND expires_at > NOW()
+           AND etapa = 'aguardando_remetente'`,
+        [digitosAutor]
     );
 
-    if (res.rowCount === 0) {
-        await sock.sendMessage(grupo, {
-            text: `❌ @${aceitante.split('@')[0]}, você não tem convite pendente ou ele expirou.\n\n${RODAPE}`,
-            mentions: [aceitante],
-        });
+    if (resRemetente.rowCount > 0) {
+        const convite      = resRemetente.rows[0];
+        const convidadoJid = garantirJidCompleto(convite.convidado);
+        const botNumero    = sock.user.id.split(':')[0];
+
+        // Avança etapa para aguardando_convidado
+        await query(
+            `UPDATE convites_pendentes SET etapa = 'aguardando_convidado' WHERE id = $1`,
+            [convite.id]
+        );
+
+        // Avisa o CONVIDADO
+        const caption =
+            `💌 *CONVITE SALA VIP* 💌\n\n` +
+            `@${convidadoJid.split('@')[0]}, @${autor.split('@')[0]} quer conversar com você na *Sala VIP*! 💎\n\n` +
+            `A sala só será criada se você salvar o número do bot.\n\n` +
+            `📱 Salve o número *${botNumero}* e escreva *#salvei* aqui no grupo.\n\n` +
+            `❌ Se não quiser ir, escreva *#recusar* — ninguém no grupo ficará sabendo.\n\n` +
+            `⚠️ Se não responder, o convite expira em breve.\n\n` +
+            `${RODAPE}`;
+
+        await enviarComImagem(sock, grupo, caption, [convidadoJid, autor]);
+
+        console.log(`💾 [#salvei] Remetente ${autor.split('@')[0]} confirmou → aguardando convidado ${convidadoJid.split('@')[0]}`);
         return true;
     }
 
-    const convite      = res.rows[0];
-    const remetenteJid = garantirJidCompleto(convite.remetente);
-    const convidadoJid = convite.convidado; // JID original salvo no banco
+    // ── Verifica se é o CONVIDADO confirmando (etapa: aguardando_convidado) ──
+    const resConvidado = await query(
+        `SELECT * FROM convites_pendentes
+         WHERE REGEXP_REPLACE(convidado, '[^0-9]', '', 'g') = $1
+           AND expires_at > NOW()
+           AND etapa = 'aguardando_convidado'`,
+        [digitosAutor]
+    );
 
-    // Remove convite do banco pelo JID original salvo
-    await query(`DELETE FROM convites_pendentes WHERE convidado = $1`, [convidadoJid]);
-    console.log(`🗑️ [#aceitar] Convite removido do banco: ${convidadoJid}`);
+    if (resConvidado.rowCount > 0) {
+        const convite      = resConvidado.rows[0];
+        const remetenteJid = garantirJidCompleto(convite.remetente);
 
-    const salaVipId = await criarGrupoVip(sock, aceitante, remetenteJid);
+        // Remove convite do banco
+        await query(`DELETE FROM convites_pendentes WHERE id = $1`, [convite.id]);
+        console.log(`🗑️ [#salvei] Convite removido do banco: ${convite.id}`);
 
-    if (!salaVipId) {
+        // Cria sala direto
+        const salaVipId = await criarGrupoVip(sock, autor, remetenteJid);
+
+        if (!salaVipId) {
+            await sock.sendMessage(grupo, {
+                text: `❌ Não foi possível criar a Sala VIP. Tente novamente em instantes.\n\n${RODAPE}`,
+            });
+            return true;
+        }
+
         await sock.sendMessage(grupo, {
-            text: `❌ Não foi possível criar a Sala VIP. Tente novamente em instantes.\n\n${RODAPE}`,
+            text:
+                `✅ @${autor.split('@')[0]} confirmou! 🔒\n\n` +
+                `💎 A *𝐒𝐀𝐋𝐀 𝐕𝐈𝐏* foi criada para @${autor.split('@')[0]} e @${remetenteJid.split('@')[0]}. Aproveitem! 🔥\n\n` +
+                `${RODAPE}`,
+            mentions: [autor, remetenteJid],
         });
+
+        console.log(`✅ [#salvei] Sala criada: ${autor.split('@')[0]} + ${remetenteJid.split('@')[0]} | ${salaVipId}`);
         return true;
     }
 
+    // Nenhum convite ativo encontrado
     await sock.sendMessage(grupo, {
-        text:
-            `✅ @${aceitante.split('@')[0]} aceitou o convite de @${remetenteJid.split('@')[0]}! 🔒\n\n` +
-            `💎 A *𝐒𝐀𝐋𝐀 𝐕𝐈𝐏* foi criada. Aproveitem! 🔥\n\n` +
-            `${RODAPE}`,
-        mentions: [aceitante, remetenteJid],
+        text: `❌ @${autor.split('@')[0]}, você não tem nenhum convite ativo no momento.\n\n${RODAPE}`,
+        mentions: [autor],
     });
 
-    console.log(`✅ [#aceitar] Sala criada: ${aceitante.split('@')[0]} + ${remetenteJid.split('@')[0]} | ${salaVipId}`);
     return true;
 }
 
 // ============================================
 // ❌ HANDLER: #recusar
+// Convidado recusa → mensagens discretas no PV para ambos
 // ============================================
 export async function recusarHandler(sock, message, grupo) {
     await sock.sendMessage(grupo, { delete: message.key });
 
     const recusanteRaw = message.key.participant;
-
     if (!recusanteRaw) return true;
 
     const recusante = garantirJidCompleto(
         await resolverJidViaGrupo(sock, recusanteRaw, grupo)
     );
+    const digitos = recusante.replace(/\D/g, '');
 
     console.log(`🔍 [DEBUG] recusante → ${recusante}`);
 
-    // Busca por JID exato OU por dígitos (evita divergência de sufixo)
-    const digitos = recusante.replace(/\D/g, '');
+    // Só o convidado pode recusar (etapa: aguardando_convidado)
     const res = await query(
         `SELECT * FROM convites_pendentes
-         WHERE (convidado = $1 OR REGEXP_REPLACE(convidado, '[^0-9]', '', 'g') = $2)
-           AND expires_at > NOW()`,
-        [recusante, digitos]
+         WHERE REGEXP_REPLACE(convidado, '[^0-9]', '', 'g') = $1
+           AND expires_at > NOW()
+           AND etapa = 'aguardando_convidado'`,
+        [digitos]
     );
 
     if (res.rowCount === 0) {
@@ -422,13 +475,11 @@ export async function recusarHandler(sock, message, grupo) {
 
     const convite      = res.rows[0];
     const remetenteJid = garantirJidCompleto(convite.remetente);
-    const convidadoJid = convite.convidado; // JID original salvo no banco
 
-    // Remove convite do banco pelo JID original salvo
-    await query(`DELETE FROM convites_pendentes WHERE convidado = $1`, [convidadoJid]);
-    console.log(`🗑️ [#recusar] Convite removido do banco: ${convidadoJid}`);
+    await query(`DELETE FROM convites_pendentes WHERE id = $1`, [convite.id]);
+    console.log(`🗑️ [#recusar] Convite removido do banco: ${convite.id}`);
 
-    // Notifica o remetente no privado — discreto, sem expor no grupo
+    // Notifica remetente no PV — discreto
     try {
         await sock.sendMessage(remetenteJid, {
             text:
@@ -441,7 +492,7 @@ export async function recusarHandler(sock, message, grupo) {
         console.warn('⚠️ [#recusar] Não foi possível notificar remetente no privado:', e.message);
     }
 
-    // Confirma para quem recusou no privado — ninguém no grupo fica sabendo
+    // Confirma para o recusante no PV
     try {
         await sock.sendMessage(recusante, {
             text:
@@ -477,8 +528,6 @@ export async function vipHandler(sock, message, grupo) {
             .map(p => p.id);
 
         console.log(`👥 [#vip] ${mentions.length} participantes | ${admins.length} admins`);
-        console.log(`🔍 [#vip] remetenteRaw: ${remetenteRaw}`);
-        console.log(`🔍 [#vip] admins lista: ${admins.join(', ')}`);
 
     } catch (e) {
         console.error('❌ [#vip] Erro ao buscar participantes:', e.message);
@@ -488,13 +537,10 @@ export async function vipHandler(sock, message, grupo) {
         return true;
     }
 
-    // Compara por dígitos para evitar divergências de sufixo (@lid vs @s.whatsapp.net)
     const digitosRemetente = remetenteRaw.replace(/@.*$/, '').replace(/\D/g, '');
     const isAdmin = admins.some(
         a => a.replace(/@.*$/, '').replace(/\D/g, '') === digitosRemetente
     );
-
-    console.log(`🔍 [#vip] digitosRemetente: ${digitosRemetente} | isAdmin: ${isAdmin}`);
 
     if (!isAdmin) {
         await sock.sendMessage(grupo, {
@@ -509,20 +555,19 @@ export async function vipHandler(sock, message, grupo) {
         `🚫 Não chame no PV sem permissão: alguns chamam sem avisar e outros ficam com vergonha no grupo.\n\n` +
         `✨ *Pensando nisso criamos a SALA VIP!* ✨\n\n` +
         `📌 *Como usar:*\n` +
-        `👉 A pessoa interessada escreve no grupo: #chamar + nome da pessoa\n` +
-        ` ex: #chamar @fulano\n` +
-        `👉 A pessoa convidada responde no grupo: #aceitar ou #recusar\n\n` +
-        `🎉 O bot cria uma sala privada só para vocês dois\n\n` +
+        `👉 Quem quer chamar escreve: *#chamar @pessoa*\n` +
+        `👉 O bot pede que você salve o número dele e escreva *#salvei*\n` +
+        `👉 O bot avisará a pessoa convidada, que também salva o número e escreve *#salvei*\n` +
+        `👉 Sala criada automaticamente! 🎉\n\n` +
+        `❌ Se a pessoa convidada não quiser, ela escreve *#recusar*\n\n` +
         `⚠️ *Importante:*\n` +
-        `📲 Salve o número do bot\n` +
+        `📲 Ambos precisam salvar o número do bot\n` +
         `👥 Só entram os dois\n` +
-        `🤖 O bot não fica na sala\n` +
+        `🤖 O bot sai da sala após 60 segundos\n` +
         `🤫 Recusas são discretas — ninguém no grupo fica sabendo\n\n` +
-        `✔️ Mais respeito e menos constrangimento`;
+        `✔️ Mais respeito e menos constrangimento\n\n` +
+        `${RODAPE}`;
 
-    // ✅ ALTERAÇÃO: era sock.sendMessage com { text, mentions }
-    // agora usa enviarComImagem para mandar o poster COM a foto da Sala VIP
-    // se a imagem falhar, ela cai no fallback e manda só o texto normalmente
     await enviarComImagem(sock, grupo, poster, mentions);
 
     console.log(`📢 [#vip] Poster enviado por ${digitosRemetente} com ${mentions.length} menções.`);
@@ -536,7 +581,7 @@ export async function handleChamarCommand(sock, message, content, from) {
     const lower = content.toLowerCase().trim();
 
     if (lower.startsWith('#chamar')) return await chamarHandler(sock, message, from);
-    if (lower === '#aceitar')        return await aceitarHandler(sock, message, from);
+    if (lower === '#salvei')         return await salveiHandler(sock, message, from);
     if (lower === '#recusar')        return await recusarHandler(sock, message, from);
     if (lower === '#vip')            return await vipHandler(sock, message, from);
 

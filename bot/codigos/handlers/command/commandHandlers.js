@@ -3,7 +3,7 @@ import { handleSignos } from '../../moderation/signosHandler.js';
 import { handleBlacklistCommands } from '../../../codigos/moderation/blacklist/blacklistHandler.js';
 import { listarSignos, handleHoroscopoCommand } from '../../features/horoscopoHandler.js';
 import { scanAndRemoveBlacklisted } from '../../../codigos/moderation/blacklist/blacklistFunctions.js';
-import { chamarHandler, aceitarHandler } from './chamarHandler.js';
+import { handleChamarCommand } from './chamarHandler.js';
 
 /**
  * Função para deletar mensagem com múltiplas tentativas (IGUAL AO #BAN)
@@ -52,7 +52,6 @@ export async function handleSignosCommands(sock, message, content, from) {
 
 // 🚫 BLACKLIST - CORRIGIDO
 export async function handleBlacklistGroup(sock, from, userId, content, message) {
-    // Passa a mensagem completa (message) ao invés de pool
     return await handleBlacklistCommands(sock, from, userId, content, message);
 }
 
@@ -63,7 +62,6 @@ export async function handleVarreduraCommand(sock, message, content, from, userI
     }
 
     try {
-        // DELETA O COMANDO IMEDIATAMENTE
         await deleteCommandMessage(sock, from, message.key);
         
         const groupMetadata = await sock.groupMetadata(from);
@@ -109,17 +107,5 @@ export async function handleHoroscopoLegacy(sock, message, content, from) {
     return false;
 }
 
-// 💌 CHAMAR / ACEITAR
-export async function handleChamarCommand(sock, message, content, from) {
-    const lower = content.toLowerCase().trim();
-
-    if (lower.startsWith('#chamar')) {
-        return await chamarHandler(sock, message, from);
-    }
-
-    if (lower === '#aceitar') {
-        return await aceitarHandler(sock, message, from);
-    }
-
-    return false;
-}
+// 💌 CHAMAR - delega tudo para chamarHandler.js
+export { handleChamarCommand };

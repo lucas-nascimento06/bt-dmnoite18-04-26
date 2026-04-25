@@ -41,7 +41,7 @@ const replyTag = new ReplyTagHandler();
 const OWNER_NUMBERS = ['5516981874405', '5521972337640'];
 const DEBUG_MODE = process.env.DEBUG === 'true';
 
-const GRUPO_PRINCIPAL = '120363404775670913@g.us';
+const GRUPO_PRINCIPAL = '120363419322682521@g.us';
 
 const MEDIA_TYPES = [
   'imageMessage',

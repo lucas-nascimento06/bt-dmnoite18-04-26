@@ -3,7 +3,7 @@ import pkg from '@whiskeysockets/baileys';
 const { fetchProfilePictureUrl } = pkg;
 
 // Grupo de destino dos avisos
-const GRUPO_ADMINS = '120363426062597341@g.us';
+const GRUPO_ADMINS = '120363421857537823@g.us';
 const yourNumbers = [GRUPO_ADMINS];
 
 // Função para enviar mensagens de aviso

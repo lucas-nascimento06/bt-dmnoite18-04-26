@@ -9,7 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Grupo onde as boas-vindas serão enviadas
-const GRUPO_PRINCIPAL = '120363404775670913@g.us';
+const GRUPO_PRINCIPAL = '120363419322682521@g.us';
 
 // ✨ NOVO: Controle de sequência de áudios
 let indiceAudioAtual = 0;

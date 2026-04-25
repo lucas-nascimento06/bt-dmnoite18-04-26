@@ -1,11 +1,13 @@
 // bot/codigos/handlers/command/saudacoesHandler.js
 // ============================================
 // 🎯 COMANDOS: #bomdia / #bd | #boatarde / #bt | #boanoite / #bn
-// 📝 FUNÇÃO: Busca saudações do GitHub
+// 📝 FUNÇÃO: Busca saudações e fotos do GitHub
 // 🔗 FONTE: GitHub JSON
 // ============================================
 
 import fetch from 'node-fetch';
+import axios from 'axios';
+import { Jimp } from 'jimp';
 
 const URL_SAUDACOES = 'https://raw.githubusercontent.com/lucas-nascimento06/saudacoes-gp/refs/heads/main/saudacoeshandler.json';
 
@@ -13,23 +15,25 @@ const URL_SAUDACOES = 'https://raw.githubusercontent.com/lucas-nascimento06/saud
 
 const CONFIGS = {
     bom_dia: {
-        titulo:  `☀️ 👏🍻 DﾑMﾑS 💃🔥 Dﾑ NIGӇԵ 💃🎶🍾🍸 ☀️\n┈──┈˖˚⊹ ⋆♡⋆ ⊹˚˖ ┈──┈`,
-        rodape:  `☀️ © 𝔇𝔞𝔪𝔞𝔰 𝔡𝔞 𝔑𝔦𝔤𝔥𝔱 ☀️`,
+        titulo:    `☀️ 👏🍻 DﾑMﾑS 💃🔥 Dﾑ NIGӇԵ 💃🎶🍾🍸 ☀️\n┈──┈˖˚⊹ ⋆♡⋆ ⊹˚˖ ┈──┈`,
+        rodape:    `☀️ © 𝔇𝔞𝔪𝔞𝔰 𝔡𝔞 𝔑𝔦𝔤𝔥𝔱 ☀️`,
         separador: `: ・ෆ・┈・┈・⊹*:ꔫ:*˖ ☀️ ⊹ ・┈・┈・ෆ・ :`,
-        chave:   'bom_dia'
+        chave:     'bom_dia',
+        chaveFoto: 'fotos_bom_dia'
     },
     boa_tarde: {
-        titulo:  `🌇 👏🍻 DﾑMﾑS 💃🔥 Dﾑ NIGӇԵ 💃🎶🍾🍸 🌇\n┈──┈˖˚⊹ ⋆✴︎˚｡⋆ ⊹˚˖ ┈──┈`,
-        rodape:  `🌇 © 𝔇𝔞𝔪𝔞𝔰 𝔡𝔞 𝔑𝔦𝔤𝔥𝔱 🌇`,
+        titulo:    `🌇 👏🍻 DﾑMﾑS 💃🔥 Dﾑ NIGӇԵ 💃🎶🍾🍸 🌇\n┈──┈˖˚⊹ ⋆✴︎˚｡⋆ ⊹˚˖ ┈──┈`,
+        rodape:    `🌇 © 𝔇𝔞𝔪𝔞𝔰 𝔡𝔞 𝔑𝔦𝔤𝔥𝔱 🌇`,
         separador: `: ・ෆ・┈・┈・⊹*:ꔫ:*˖ 🌇 ⊹ ・┈・┈・ෆ・ :`,
-        chave:   'boa_tarde'
+        chave:     'boa_tarde',
+        chaveFoto: 'fotos_boa_tarde'
     },
     boa_noite: {
-        titulo:  `🌃 👏🍻 DﾑMﾑS 💃🔥 Dﾑ NIGӇԵ 💃🎶🍾🍸 🌃\n: ・ෆ・┈・┈・⊹*:˗ˋˏ ✶ ˎˊ˗:*˖ 🌃 ⊹ ・┈・┈・ෆ・ :`,
-        rodape:  `🌃 © 𝔇𝔞𝔪𝔞𝔰 𝔡𝔞 𝔑𝔦𝔤𝔥𝔱 🌃`,
-        separador: `.₊̣.̩✧ *̣̩˚̣̣⁺̣‧.₊̣̇.‧⁺̣˚̣̣*̣̩⋆·̩̩.̩̥·̩̩⋆*̣̩˚̣̣⁺̣‧.₊̣̇.‧⁺̣˚̣̣*̣̩ ✧·.̩₊̣
-`,
-        chave:   'boa_noite'
+        titulo:    `🌃 👏🍻 DﾑMﾑS 💃🔥 Dﾑ NIGӇԵ 💃🎶🍾🍸 🌃\n: ・ෆ・┈・┈・⊹*:˗ˋˏ ✶ ˎˊ˗:*˖ 🌃 ⊹ ・┈・┈・ෆ・ :`,
+        rodape:    `🌃 © 𝔇𝔞𝔪𝔞𝔰 𝔡𝔞 𝔑𝔦𝔤𝔥𝔱 🌃`,
+        separador: `.₊̣.̩✧ *̣̩˚̣̣⁺̣‧.₊̣̇.‧⁺̣˚̣̣*̣̩⋆·̩̩.̩̥·̩̩⋆*̣̩˚̣̣⁺̣‧.₊̣̇.‧⁺̣˚̣̣*̣̩ ✧·.̩₊̣\n`,
+        chave:     'boa_noite',
+        chaveFoto: 'fotos_boa_noite'
     }
 };
 
@@ -45,9 +49,19 @@ const negrito = (texto) =>
 let saudacoesData   = null;
 let dadosCarregados = false;
 
-// ── Filas sem repetição por período ───────────────────────────────────────
+// ── Filas sem repetição — textos e fotos por período ──────────────────────
 
-const filas = { bom_dia: [], boa_tarde: [], boa_noite: [] };
+const filas = {
+    bom_dia:   [],
+    boa_tarde: [],
+    boa_noite: []
+};
+
+const filasFotos = {
+    fotos_bom_dia:   [],
+    fotos_boa_tarde: [],
+    fotos_boa_noite: []
+};
 
 function embaralhar(array) {
     const arr = [...array];
@@ -61,6 +75,11 @@ function embaralhar(array) {
 function reconstruirFila(chave) {
     filas[chave] = embaralhar(saudacoesData[chave]);
     console.log(`🔀 Fila [${chave}] reconstruída: ${filas[chave].length} mensagens`);
+}
+
+function reconstruirFilaFotos(chaveFoto) {
+    filasFotos[chaveFoto] = embaralhar(saudacoesData[chaveFoto]);
+    console.log(`🖼️ Fila [${chaveFoto}] reconstruída: ${filasFotos[chaveFoto].length} fotos`);
 }
 
 // ── Carregar JSON do GitHub ────────────────────────────────────────────────
@@ -77,9 +96,12 @@ async function carregarSaudacoes() {
         const data = await response.json();
 
         saudacoesData = {
-            bom_dia:   (data.bom_dia   || []).filter(i => i && i.texto),
-            boa_tarde: (data.boa_tarde || []).filter(i => i && i.texto),
-            boa_noite: (data.boa_noite || []).filter(i => i && i.texto)
+            bom_dia:         (data.bom_dia         || []).filter(i => i && i.texto),
+            boa_tarde:       (data.boa_tarde       || []).filter(i => i && i.texto),
+            boa_noite:       (data.boa_noite       || []).filter(i => i && i.texto),
+            fotos_bom_dia:   (data.fotos_bom_dia   || []).filter(Boolean),
+            fotos_boa_tarde: (data.fotos_boa_tarde || []).filter(Boolean),
+            fotos_boa_noite: (data.fotos_boa_noite || []).filter(Boolean)
         };
 
         dadosCarregados = true;
@@ -87,11 +109,14 @@ async function carregarSaudacoes() {
         reconstruirFila('bom_dia');
         reconstruirFila('boa_tarde');
         reconstruirFila('boa_noite');
+        reconstruirFilaFotos('fotos_bom_dia');
+        reconstruirFilaFotos('fotos_boa_tarde');
+        reconstruirFilaFotos('fotos_boa_noite');
 
         console.log(`✅ Saudações carregadas!`);
-        console.log(`   ☀️  bom_dia:   ${saudacoesData.bom_dia.length}`);
-        console.log(`   🌇 boa_tarde: ${saudacoesData.boa_tarde.length}`);
-        console.log(`   🌃 boa_noite: ${saudacoesData.boa_noite.length}`);
+        console.log(`   ☀️  bom_dia:   ${saudacoesData.bom_dia.length} textos | ${saudacoesData.fotos_bom_dia.length} fotos`);
+        console.log(`   🌇 boa_tarde: ${saudacoesData.boa_tarde.length} textos | ${saudacoesData.fotos_boa_tarde.length} fotos`);
+        console.log(`   🌃 boa_noite: ${saudacoesData.boa_noite.length} textos | ${saudacoesData.fotos_boa_noite.length} fotos`);
         return true;
     } catch (error) {
         console.error('❌ Erro ao carregar saudações:', error.message);
@@ -106,15 +131,75 @@ function getProximaMensagem(chave) {
     if (!dadosCarregados || !saudacoesData || saudacoesData[chave].length === 0) {
         throw new Error('Saudações não carregadas');
     }
-
     if (filas[chave].length === 0) {
         console.log(`🔁 Fila [${chave}] reiniciada!`);
         reconstruirFila(chave);
     }
-
     const item = filas[chave].shift();
     console.log(`📋 [${chave}] Restantes na fila: ${filas[chave].length}`);
     return item.texto.replace(/\*/g, '');
+}
+
+// ── Próxima foto da fila ───────────────────────────────────────────────────
+
+function getProximaFoto(chaveFoto) {
+    if (!saudacoesData || saudacoesData[chaveFoto].length === 0) return null;
+    if (filasFotos[chaveFoto].length === 0) {
+        console.log(`🔁 Fila de fotos [${chaveFoto}] reiniciada!`);
+        reconstruirFilaFotos(chaveFoto);
+    }
+    const url = filasFotos[chaveFoto].shift();
+    console.log(`🖼️ [${chaveFoto}] Fotos restantes: ${filasFotos[chaveFoto].length}`);
+    return url;
+}
+
+// ── Baixar imagem ──────────────────────────────────────────────────────────
+
+async function baixarImagem(url) {
+    try {
+        console.log(`🖼️ Baixando imagem: ${url}`);
+        const res    = await axios.get(url, { responseType: 'arraybuffer' });
+        const buffer = Buffer.from(res.data, 'binary');
+        console.log(`✅ Imagem baixada: ${buffer.length} bytes`);
+        return buffer;
+    } catch (error) {
+        console.error('❌ Erro ao baixar imagem:', error.message);
+        return null;
+    }
+}
+
+// ── Gerar thumbnail ────────────────────────────────────────────────────────
+
+async function gerarThumbnail(buffer, size = 256) {
+    try {
+        const image = await Jimp.read(buffer);
+        image.scaleToFit({ w: size, h: size });
+        return await image.getBuffer('image/jpeg');
+    } catch (err) {
+        console.error('Erro ao gerar thumbnail:', err);
+        return null;
+    }
+}
+
+// ── Enviar imagem com thumbnail ────────────────────────────────────────────
+
+async function sendMediaWithThumbnail(sock, jid, buffer, caption, mentions = []) {
+    try {
+        const thumb = await gerarThumbnail(buffer, 256);
+        await sock.sendMessage(jid, { image: buffer, caption, mentions, jpegThumbnail: thumb });
+        console.log('✅ Imagem enviada com thumbnail!');
+        return true;
+    } catch (err) {
+        console.error('❌ Erro ao enviar com thumbnail:', err.message);
+        try {
+            await sock.sendMessage(jid, { image: buffer, caption, mentions });
+            console.log('✅ Imagem enviada sem thumbnail (fallback)!');
+            return true;
+        } catch (err2) {
+            console.error('❌ Erro no fallback de imagem:', err2.message);
+            return false;
+        }
+    }
 }
 
 // ── Verificar admin ────────────────────────────────────────────────────────
@@ -172,38 +257,51 @@ async function handleSaudacao(sock, message, from, tipo) {
         console.log(`📱 Grupo: ${from}`);
         console.log(`👤 Enviado por: ${senderId}`);
 
-        const isAdmin  = await verificarAdmin(sock, from, senderId);
-        const mentions = isAdmin ? await obterParticipantes(sock, from) : [];
+       const isAdmin  = await verificarAdmin(sock, from, senderId);
 
-        console.log(`👑 Admin: ${isAdmin} | 👥 Mencionando: ${mentions.length} pessoas`);
-
-        if (!dadosCarregados) {
-            await carregarSaudacoes();
+        if (!isAdmin) {
+        await apagarMensagemComando(sock, message, from);
+          console.log(`🚫 [${tipo}] Bloqueado: ${senderId} não é admin`);
+        return;
         }
 
-        const texto = getProximaMensagem(tipo);
+        const mentions = await obterParticipantes(sock, from);
 
-        const mensagem =
+        console.log(`👑 Admin | 👥 Mencionando: ${mentions.length} pessoas`);
+
+        if (!dadosCarregados) await carregarSaudacoes();
+
+        const texto = getProximaMensagem(cfg.chave);
+
+        const caption =
             `${negrito(cfg.titulo)}\n\n` +
             `${negrito(texto)}\n\n` +
             `${cfg.separador}\n\n` +
             `${negrito(cfg.rodape)}`;
 
-        // 🗑️ Apaga o comando antes de enviar a saudação
+        // 🗑️ Apaga o comando antes de enviar
         await apagarMensagemComando(sock, message, from);
 
-        await sock.sendMessage(from, { text: mensagem, mentions });
+        // 🖼️ Tenta enviar com foto do período
+        const fotoUrl    = getProximaFoto(cfg.chaveFoto);
+        const fotoBuffer = fotoUrl ? await baixarImagem(fotoUrl) : null;
+
+        if (fotoBuffer) {
+            const enviado = await sendMediaWithThumbnail(sock, from, fotoBuffer, caption, mentions);
+            if (!enviado) await sock.sendMessage(from, { text: caption, mentions });
+        } else {
+            console.log('⚠️ Sem foto disponível, enviando só texto...');
+            await sock.sendMessage(from, { text: caption, mentions });
+        }
 
         console.log(`✅ [${tipo}] enviado! Admin: ${isAdmin} | Marcados: ${mentions.length}\n`);
 
     } catch (error) {
         console.error(`❌ Erro no handler [${tipo}]:`, error);
 
-        // 🗑️ Tenta apagar mesmo em caso de erro
         await apagarMensagemComando(sock, message, from);
 
         const cfg = CONFIGS[tipo];
-
         await sock.sendMessage(from, {
             text:
                 `${negrito(cfg.titulo)}\n\n` +
@@ -246,7 +344,6 @@ export async function handleAtualizarSaudacoes(sock, message, args, from) {
         console.log(`📱 Grupo: ${from}`);
         console.log(`👤 Enviado por: ${senderId} | Admin: ${isAdmin}`);
 
-        // 🗑️ Apaga o comando do grupo
         await apagarMensagemComando(sock, message, from);
 
         if (!isAdmin) {
@@ -262,7 +359,7 @@ export async function handleAtualizarSaudacoes(sock, message, args, from) {
         await sock.sendMessage(from, {
             text:
                 `🔄 ${negrito('Atualizando saudações...')}\n` +
-                `_Buscando mensagens no repositório..._`
+                `_Buscando mensagens e fotos no repositório..._`
         });
 
         dadosCarregados = false;
@@ -272,9 +369,9 @@ export async function handleAtualizarSaudacoes(sock, message, args, from) {
             await sock.sendMessage(from, {
                 text:
                     `✅ ${negrito('Saudações atualizadas com sucesso!')}\n\n` +
-                    `☀️ ${negrito(`bom_dia: ${saudacoesData.bom_dia.length} mensagens`)}\n` +
-                    `🌇 ${negrito(`boa_tarde: ${saudacoesData.boa_tarde.length} mensagens`)}\n` +
-                    `🌃 ${negrito(`boa_noite: ${saudacoesData.boa_noite.length} mensagens`)}\n\n` +
+                    `☀️ ${negrito(`bom_dia: ${saudacoesData.bom_dia.length} textos | ${saudacoesData.fotos_bom_dia.length} fotos`)}\n` +
+                    `🌇 ${negrito(`boa_tarde: ${saudacoesData.boa_tarde.length} textos | ${saudacoesData.fotos_boa_tarde.length} fotos`)}\n` +
+                    `🌃 ${negrito(`boa_noite: ${saudacoesData.boa_noite.length} textos | ${saudacoesData.fotos_boa_noite.length} fotos`)}\n\n` +
                     `💡 Use ${negrito('#bomdia')} • ${negrito('#boatarde')} • ${negrito('#boanoite')}`
             });
         } else {

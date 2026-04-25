@@ -9,7 +9,7 @@ import axios from 'axios';
 import { Jimp } from 'jimp';
 
 const URL_POEMAS = 'https://raw.githubusercontent.com/lucas-nascimento06/poemas-damas/refs/heads/main/poemas.json';
-const FOTO_URL   = 'https://i.ibb.co/0Vqnrn4Z/58629ea7-a141-4f18-9f00-99c177f8fa53-1.png';
+const FOTO_URL   = 'https://i.ibb.co/7t4msV30/58629ea7-a141-4f18-9f00-99c177f8fa53-1.png';
 
 const TITULO_ELEGANTE = `👏🍻 DﾑMﾑS 💃🔥 Dﾑ NIGӇԵ 💃🎶🍾🍸\n┈──┈˖˚⊹ ⋆♡⋆ ⊹˚˖ ┈──┈`;
 const RODAPE_ELEGANTE = `: ・ෆ・┈・┈・⊹*:ꔫ:*˖ ࣪⊹ ・┈・┈・ෆ・ :`;
@@ -43,7 +43,7 @@ function reconstruirFilas() {
 }
 
 // ============================================
-// 🖼️ BAIXAR IMAGEM — igual ao rankdamasHandler
+// 🖼️ BAIXAR IMAGEM
 // ============================================
 
 async function baixarImagemPoema() {
@@ -60,7 +60,7 @@ async function baixarImagemPoema() {
 }
 
 // ============================================
-// 🖼️ GERAR THUMBNAIL — igual ao rankdamasHandler
+// 🖼️ GERAR THUMBNAIL
 // ============================================
 
 async function gerarThumbnail(buffer, size = 256) {
@@ -75,7 +75,7 @@ async function gerarThumbnail(buffer, size = 256) {
 }
 
 // ============================================
-// 📤 ENVIAR IMAGEM COM THUMBNAIL — igual ao rankdamasHandler
+// 📤 ENVIAR IMAGEM COM THUMBNAIL
 // ============================================
 
 async function sendMediaWithThumbnail(sock, jid, buffer, caption, mentions = []) {
@@ -91,7 +91,6 @@ async function sendMediaWithThumbnail(sock, jid, buffer, caption, mentions = [])
         return true;
     } catch (err) {
         console.error('❌ Erro ao enviar com thumbnail:', err.message);
-        // Fallback sem thumbnail
         try {
             await sock.sendMessage(jid, { image: buffer, caption, mentions });
             console.log('✅ Imagem enviada sem thumbnail (fallback)!');
@@ -215,9 +214,18 @@ export async function handlePoemas(sock, message, args, from) {
         console.log(`👤 Enviado por: ${senderId}`);
 
         const isAdmin = await verificarAdmin(sock, from, senderId);
-        const mentions = isAdmin ? await obterParticipantesGrupo(sock, from) : [];
 
-        console.log(`👑 Admin: ${isAdmin} | 👥 Mencionando: ${mentions.length} pessoas`);
+        // ✅ Apaga a mensagem do comando SEMPRE (admin ou não)
+        await sock.sendMessage(from, { delete: message.key });
+
+        if (!isAdmin) {
+            console.log(`🚫 [#poemas] Bloqueado: ${senderId} não é admin`);
+            return;
+        }
+
+        const mentions = await obterParticipantesGrupo(sock, from);
+
+        console.log(`👑 Admin | 👥 Mencionando: ${mentions.length} pessoas`);
 
         if (!poemasCarregados) {
             await carregarPoemas();
@@ -231,13 +239,11 @@ export async function handlePoemas(sock, message, args, from) {
             `${RODAPE_ELEGANTE}\n\n` +
             `${negrito(rodape)}`;
 
-        // ✅ Tenta enviar com imagem (igual ao rankdamasHandler)
         const fotoBuffer = await baixarImagemPoema();
 
         if (fotoBuffer) {
             const enviado = await sendMediaWithThumbnail(sock, from, fotoBuffer, caption, mentions);
             if (!enviado) {
-                // Fallback para texto puro se a imagem falhar completamente
                 await sock.sendMessage(from, { text: caption, mentions });
             }
         } else {
@@ -276,13 +282,11 @@ export async function handleAtualizarPoemas(sock, message, args, from) {
         console.log(`📱 Grupo: ${from}`);
         console.log(`👤 Enviado por: ${senderId} | Admin: ${isAdmin}`);
 
+        // ✅ Apaga a mensagem do comando SEMPRE (admin ou não)
+        await sock.sendMessage(from, { delete: message.key });
+
         if (!isAdmin) {
-            await sock.sendMessage(from, {
-                text:
-                    `${negrito(TITULO_ELEGANTE)}\n\n` +
-                    `🚫 ${negrito('Apenas administradores podem atualizar os poemas!')}\n\n` +
-                    `${RODAPE_ELEGANTE}`
-            });
+            console.log(`🚫 [#atualizarpoemas] Bloqueado: ${senderId} não é admin`);
             return;
         }
 

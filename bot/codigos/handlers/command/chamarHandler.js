@@ -284,7 +284,7 @@ export async function chamarHandler(sock, message, grupo) {
     await query(
         `INSERT INTO convites_pendentes
             (convidado, remetente, nome_remetente, grupo, expires_at, etapa)
-         VALUES ($1, $2, $3, $4, NOW() + INTERVAL '50 seconds', 'aguardando_remetente')`,
+         VALUES ($1, $2, $3, $4, NOW() + INTERVAL '2 minutes', 'aguardando_remetente')`,
         [convidado, remetente, nomeRemetente, grupo]
     );
 
@@ -294,7 +294,7 @@ export async function chamarHandler(sock, message, grupo) {
         `@${remetente.split('@')[0]}, para continuar você precisa ter o número do bot salvo.\n\n` +
         `📱 O número do bot é *${botNumero}*.\n` +
         `Salve-o agora e escreva *#salvei* aqui no grupo.\n\n` +
-        `⚠️ Se não confirmar em *50 segundos*, o convite será cancelado automaticamente.\n\n` +
+        `⚠️ Se não confirmar em *2 minutos*, o convite será cancelado automaticamente.\n\n` +
         `${RODAPE}`;
 
     await enviarComImagem(sock, grupo, caption, [remetente]);
@@ -333,7 +333,7 @@ export async function chamarHandler(sock, message, grupo) {
         } catch (e) {
             console.error('❌ Erro ao expirar convite:', e.message);
         }
-    }, 50 * 1000);
+    }, 2 * 60 * 1000);
 
     return true;
 }

@@ -136,7 +136,7 @@ function sortearFrase(categoria) {
     return ativos[Math.floor(Math.random() * ativos.length)].texto;
 }
 
-// ── MONTAR PERFIL COMPLETO ────────────────────────────────────────────────
+// ── MONTAR PERFIL ────────────────────────────────────────────────
 // CORREÇÃO LID: recebe `nomeExibicao` (o que aparece no texto) separado do
 // JID real (que fica apenas em mentions[]). Quando o contato é um LID, o
 // nomeExibicao é o apelido digitado pelo usuário (@maria), enquanto o JID

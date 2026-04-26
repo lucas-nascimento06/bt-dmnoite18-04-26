@@ -36,8 +36,17 @@ export async function carregarConfigDedicatoria() {
     }
 }
 
-function garantirConfig() {
-    if (!config) throw new Error('Config não carregada. Chame carregarConfigDedicatoria() primeiro.');
+// ✅ CORRIGIDO: tenta recarregar se config for null, em vez de lançar erro fatal
+async function garantirConfig() {
+    if (!config) {
+        console.warn('⚠️ Config não carregada, tentando recarregar...');
+        try {
+            await carregarConfigDedicatoria();
+        } catch (err) {
+            console.error('❌ Falha ao recarregar config:', err.message);
+            config = null;
+        }
+    }
 }
 
 // ── HELPERS ──────────────────────────────────────────────────────────────────
@@ -54,7 +63,9 @@ function formatarDuracao(segundos) {
 }
 
 function fraseAleatoria(de, para, musica, artista) {
-    garantirConfig();
+    if (!config?.frases_romanticas?.length) {
+        return `🎵 ${de} dedicou *${musica}* de *${artista}* para ${para} 💖`;
+    }
     const frases = config.frases_romanticas;
     const idx = Math.floor(Math.random() * frases.length);
     return frases[idx].template
@@ -65,24 +76,44 @@ function fraseAleatoria(de, para, musica, artista) {
 }
 
 // ── MENSAGENS SIMPLES (mensagens.*) ─────────────────────────────────────────
+// ✅ CORRIGIDO: retorna fallback seguro se config ou chave não existir
 function getMensagem(chave, variaveis = {}) {
-    garantirConfig();
+    if (!config?.mensagens) {
+        console.warn(`⚠️ getMensagem("${chave}"): config.mensagens não disponível`);
+        return '';
+    }
     let texto = config.mensagens[chave] || '';
+    if (!texto) {
+        console.warn(`⚠️ getMensagem: chave "${chave}" não encontrada em config.mensagens`);
+    }
     for (const [k, v] of Object.entries(variaveis)) {
-        texto = texto.replace(new RegExp(`{${k}}`, 'g'), v);
+        texto = texto.replace(new RegExp(`{${k}}`, 'g'), v ?? '');
     }
     return texto;
 }
 
 // ── POSTERS (posters.*) ──────────────────────────────────────────────────────
-// Usa os textos ricos de config.posters para as captions das imagens
+// ✅ CORRIGIDO: retorna fallback seguro se config ou chave não existir
 function getPosterCaption(chave, variaveis = {}) {
-    garantirConfig();
+    if (!config?.posters) {
+        console.warn(`⚠️ getPosterCaption("${chave}"): config.posters não disponível`);
+        return '';
+    }
     let texto = config.posters[chave] || '';
+    if (!texto) {
+        console.warn(`⚠️ getPosterCaption: chave "${chave}" não encontrada em config.posters`);
+    }
     for (const [k, v] of Object.entries(variaveis)) {
-        texto = texto.replace(new RegExp(`{${k}}`, 'g'), v);
+        texto = texto.replace(new RegExp(`{${k}}`, 'g'), v ?? '');
     }
     return texto;
+}
+
+// ✅ Monta caption com fallback: tenta posters, depois mensagens, depois texto padrão
+function montarCaption(chave, variaveis = {}, fallbackTexto = '') {
+    return getPosterCaption(chave, variaveis)
+        || getMensagem(chave, variaveis)
+        || fallbackTexto;
 }
 
 async function gerarThumbnail(buffer, size = 256) {
@@ -136,18 +167,30 @@ function parsearComando(content, message) {
     return { termo: termoLimpo, mentionedJids, nomeExibicao };
 }
 
+// ✅ CORRIGIDO: valida a URL antes de tentar baixar
 async function baixarImagemPoster() {
-    garantirConfig();
+    await garantirConfig();
+
+    const posterUrl = config?.poster_url;
+
+    if (!posterUrl || typeof posterUrl !== 'string' || !posterUrl.startsWith('http')) {
+        console.warn('⚠️ poster_url inválida ou ausente no config:', posterUrl);
+        return null;
+    }
+
     try {
         console.log('🖼️ Baixando poster da dedicatória...');
-        const response = await axios.get(config.poster_url, {
+        const response = await axios.get(posterUrl, {
             responseType: 'arraybuffer',
             timeout: 10000,
             headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'image/*' },
             maxRedirects: 5
         });
         const buffer = Buffer.from(response.data, 'binary');
-        if (buffer.length < 1000) return null;
+        if (buffer.length < 1000) {
+            console.warn('⚠️ Poster baixado parece inválido (muito pequeno)');
+            return null;
+        }
         console.log(`✅ Poster baixado: ${buffer.length} bytes`);
         return buffer;
     } catch (err) {
@@ -219,19 +262,13 @@ async function processarDedicatoria(sock, from, termo, senderId, mentionedJids, 
 
     try {
         // ── 1. POSTER INICIAL ────────────────────────────────────────────────
-        // Caption usa config.posters.aviso_inicial (texto rico com emojis/formatação)
-        // Fallback para config.mensagens.aviso_inicial se o poster caption estiver vazio
         const posterBuffer = await baixarImagemPoster();
 
-        const captionAviso = getPosterCaption('aviso_inicial', {
+        const captionAviso = montarCaption('aviso_inicial', {
             destinatario: nomeDestinatario,
             remetente: nomeQuemPediu,
             termo
-        }) || getMensagem('aviso_inicial', {
-            destinatario: nomeDestinatario,
-            remetente: nomeQuemPediu,
-            termo
-        });
+        }, `🎵 Procurando *${termo}* para ${nomeDestinatario}... aguarde!`);
 
         if (posterBuffer) {
             const thumb = await gerarThumbnail(posterBuffer, 256);
@@ -270,21 +307,13 @@ async function processarDedicatoria(sock, from, termo, senderId, mentionedJids, 
         let thumbnailBuffer = null;
         if (dados.thumbnailUrl) thumbnailBuffer = await baixarThumbnail(dados.thumbnailUrl);
 
-        // Caption usa config.posters.musica_encontrada (texto rico com variáveis)
-        // Fallback para config.mensagens.musica_encontrada
-        const captionInfo = getPosterCaption('musica_encontrada', {
+        const captionInfo = montarCaption('musica_encontrada', {
             titulo: dados.titulo,
             artista: dados.autor,
             duracao: formatarDuracao(dados.duracao),
             remetente: nomeQuemPediu,
             destinatario: nomeDestinatario
-        }) || getMensagem('musica_encontrada', {
-            titulo: dados.titulo,
-            artista: dados.autor,
-            duracao: formatarDuracao(dados.duracao),
-            remetente: nomeQuemPediu,
-            destinatario: nomeDestinatario
-        });
+        }, `🎶 *${dados.titulo}* — ${dados.autor}\n⏱️ ${formatarDuracao(dados.duracao)}`);
 
         if (thumbnailBuffer) {
             const thumb = await gerarThumbnail(thumbnailBuffer, 256);
@@ -350,7 +379,12 @@ async function processarDedicatoria(sock, from, termo, senderId, mentionedJids, 
         if (fs.existsSync(caminhoTemp)) fs.unlinkSync(caminhoTemp);
 
         const chaveErro = err.message?.includes('timeout') ? 'erro_timeout' : 'erro_nao_encontrado';
-        const mensagemErro = getMensagem(chaveErro, { termo });
+
+        // ✅ CORRIGIDO: fallback seguro se config.mensagens não estiver disponível
+        const mensagemErro = getMensagem(chaveErro, { termo })
+            || (chaveErro === 'erro_timeout'
+                ? `⏱️ Tempo esgotado ao buscar *${termo}*. Tente novamente.`
+                : `❌ Não encontrei *${termo}*. Tente outro nome ou artista.`);
 
         await sock.sendMessage(from, {
             text: `${nomeQuemPediu}\n\n${mensagemErro}`,
@@ -441,9 +475,13 @@ export async function handleDedicatoriaCommands(sock, message, from) {
     const senderId = resolverSenderId(message);
     console.log(`🎙️ [DEDICATÓRIA] senderId resolvido: ${senderId}`);
 
+    // ✅ CORRIGIDO: garante config antes de usar getMensagem
+    await garantirConfig();
+
     if (!termo) {
+        const textoUso = getMensagem('uso_comando') || '📌 Use: #play [música] @pessoa';
         await sock.sendMessage(from, {
-            text: getMensagem('uso_comando'),
+            text: textoUso,
             mentions: [senderId],
             quoted: message
         });
@@ -457,8 +495,10 @@ export async function handleDedicatoriaCommands(sock, message, from) {
     });
 
     if (filaDedicatorias.length > 1) {
+        const textoFila = getMensagem('na_fila', { posicao: filaDedicatorias.length })
+            || `⏳ Sua dedicatória está na posição ${filaDedicatorias.length} da fila.`;
         await sock.sendMessage(from, {
-            text: getMensagem('na_fila', { posicao: filaDedicatorias.length }),
+            text: textoFila,
             mentions: [senderId],
             quoted: message
         });

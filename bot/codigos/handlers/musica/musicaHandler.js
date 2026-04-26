@@ -214,11 +214,11 @@ async function baixarEEnviarMusica(sock, from, termo, senderId, messageKey, orig
                         image: thumbnailBuffer,
                         caption:
                             `👏🍻 *DﾑMﾑS* 💃🔥 *Dﾑ* *NIGӇԵ* 💃🎶🍾🍸\n\n` +
-                            `♫♪♩·.¸¸.·♩♪♫ ෴❤️෴ ෴❤️෴\n` +
-                            `🎵 *${dados.titulo}*\n` +
-                            `🎤 *${dados.autor}*\n` +
-                            `⏱️ Duração: ${formatarDuracao(dados.duracao)}\n\n` +
-                            `♫♪♩·.¸¸.·♩♪♫ ෴❤️෴ ෴❤️෴\n\n` +
+                            `♫♪♩·.¸¸.·♩♪♫ ෴💞෴ ෴💞෴\n\n` +
+                            `🎼 *${dados.titulo}*\n` +
+                            `🎙️ *${dados.autor}*\n` +
+                            `⏰ Duração: ${formatarDuracao(dados.duracao)}\n\n` +
+                            `♫♪♩·.¸¸.·♩♪♫ ෴💞෴ ෴💞෴\n\n` +
                             `#NoitePerfeita #DamasDaNight #VibeBoa\n\n` +
                             `@${senderId.split('@')[0]}\n\n` +
                             `💃✨🅢🅘🅝🅣🅐 🅞 🅡🅘🅣🅜🅞. 🅑🅡🅘🅛🅗🅔 🅝🅐 🅟🅘🅢🅣🅐✨🕺\n` +

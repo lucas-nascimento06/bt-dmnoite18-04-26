@@ -2,9 +2,12 @@
 import pkg from '@whiskeysockets/baileys';
 const { fetchProfilePictureUrl } = pkg;
 
-// Grupo de destino dos avisos
-const GRUPO_ADMINS = '120363421857537823@g.us';
-const yourNumbers = [GRUPO_ADMINS];
+// Defina seus números de WhatsApp
+const yourNumbers = [
+    '5521972337640@s.whatsapp.net',
+    '558398759516@s.whatsapp.net',
+    '558588272385@s.whatsapp.net'
+];
 
 // Função para enviar mensagens de aviso
 const sendMessages = async (sock, message, mentions, image = null) => {

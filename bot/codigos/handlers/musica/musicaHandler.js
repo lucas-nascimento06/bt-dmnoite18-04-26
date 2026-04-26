@@ -179,8 +179,8 @@ async function baixarEEnviarMusica(sock, from, termo, senderId, messageKey, orig
             `🎧🎶 Preparando pra te entregar o hit: "${termo}"! 🎶💃🕺🔥\n\n` +
             `💡 *DICA DE OURO:* 🎯\n` +
             `Para resultados mais precisos use:\n` +
-            `📝 *#play [música - cantor/banda]*\n` +
-            `✨ Exemplo: _#play Envolver - Anitta_`;
+            `📝 *#play [cantor/banda - música]*\n` +
+            `✨ Exemplo: _#play Bon Jovi - Always_`;
 
         if (posterBuffer) {
             console.log('✅ Poster baixado, enviando...');
@@ -214,12 +214,16 @@ async function baixarEEnviarMusica(sock, from, termo, senderId, messageKey, orig
                         image: thumbnailBuffer,
                         caption:
                             `👏🍻 *DﾑMﾑS* 💃🔥 *Dﾑ* *NIGӇԵ* 💃🎶🍾🍸\n\n` +
-                            `♫♪♩·.¸¸.·♩♪♫\n` +
+                            `♫♪♩·.¸¸.·♩♪♫ ෴❤️෴ ෴❤️෴\n` +
                             `🎵 *${dados.titulo}*\n` +
                             `🎤 *${dados.autor}*\n` +
                             `⏱️ Duração: ${formatarDuracao(dados.duracao)}\n\n` +
+                            `♫♪♩·.¸¸.·♩♪♫ ෴❤️෴ ෴❤️෴\n\n` +
+                            `#NoitePerfeita #DamasDaNight #VibeBoa\n\n` +
                             `@${senderId.split('@')[0]}\n\n` +
-                            `⬇️ Baixando seu hit... 🎧\n💃 Prepara pra dançar! 🕺`,
+                            `💃✨🅢🅘🅝🅣🅐 🅞 🅡🅘🅣🅜🅞. 🅑🅡🅘🅛🅗🅔 🅝🅐 🅟🅘🅢🅣🅐✨🕺\n` +
+                            `⬇️ 𝙱𝙰𝙸𝚇𝙰𝙽𝙳𝙾 𝚂𝙴𝚄 𝙷𝙸𝚃... 🎧\n💃 𝙿𝚁𝙴𝙿𝙰𝚁𝙰 𝙿𝚁𝙰 𝙳𝙰𝙽𝙲̧𝙰𝚁! 🕺\n`+
+                            `🔥 𝙰 𝙵𝙴𝚂𝚃𝙰 𝚅𝙰𝙸 𝙲𝙾𝙼𝙴𝙲̧𝙰𝚁! 🎉`,
                         jpegThumbnail: thumb,
                         mentions: [senderId],
                         contextInfo: {
